@@ -1,0 +1,15 @@
+{
+  "PaymentFrequency": "",
+  "PaymentAmount": 0.0,
+  "IsOnHold": false,
+  "ShowDisplayBalance": false,
+  "DisplayBalanceText": "Current Balance",
+  "NextAssessmentDate": "/Date(-2208960000000-0800)/",
+  "TotalNewBalanceAmountDue": 0.0,
+  "SiteContext": {
+    "ManagementCompany": {
+      "ManagementCompanyId": "9001",
+      "Name": "Sample Management LLC"
+    }
+  }
+}

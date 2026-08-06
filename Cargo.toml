@@ -1,0 +1,44 @@
+[package]
+name = "westernalliancebank-hoa-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Western Alliance Bank HOA assessment payment portal from the command line — Keychain-secured, agent-friendly. Read-only. Unofficial."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/piekstra/westernalliancebank-hoa-cli"
+homepage = "https://github.com/piekstra/westernalliancebank-hoa-cli"
+readme = "README.md"
+keywords = ["hoa", "community-association", "payments", "portal", "cli"]
+categories = ["command-line-utilities"]
+
+[lib]
+name = "wabhoa"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wabhoa"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4"
+serde = { version = "1", features = ["derive"] }
+# preserve_order keeps DTO fields and table columns in the order the code
+# builds them, rather than alphabetized by serde_json's default BTreeMap.
+serde_json = { version = "1", features = ["preserve_order"] }
+pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.2.1", features = ["reqwest"] }
+pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.2.1" }
+pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.2.1" }
+pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.2.1" }
+pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.2.1" }
+pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.2.1" }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "cookies", "rustls-tls"] }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"
