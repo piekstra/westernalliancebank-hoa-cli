@@ -3,7 +3,7 @@
 //!
 //! Two jobs, one source of truth:
 //!
-//! 1. `wabhoa capabilities` prints it, so the gap between "what the portal can
+//! 1. `wabhoa writes` prints it, so the gap between "what the portal can
 //!    do" and "what this CLI does" is inspectable rather than tribal knowledge.
 //! 2. `wabhoa api` refuses to POST to any path listed here, so the raw escape
 //!    hatch can't move money by accident.
@@ -19,7 +19,7 @@ pub struct Capability {
     pub method: &'static str,
     /// Path under the portal host.
     pub path: &'static str,
-    /// Grouping for the `capabilities` table.
+    /// Grouping for the `writes` table.
     pub category: Category,
     /// What calling it would do.
     pub description: &'static str,

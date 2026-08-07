@@ -77,9 +77,19 @@ Run `make verify` before considering a change done — it's exactly what CI runs
   `balance_published: false`; `parse::properties` drops `attr_Balance` for the
   same reason. Do not "restore the missing balance column" — printing `0.00`
   there tells the user they owe nothing, which may be false.
-- **An expired session 302s to `/Home`, not 401.** The client treats landing on
-  `/Home`, an HTML body where JSON was expected, and a `200` containing
-  `id="txtPassword"` as `CliError::Auth`. Don't reduce that to a status check.
+- **An expired session never returns 401** — it has *three* different shapes,
+  and `client::expired_session` checks all of them. Don't reduce it to a status
+  check, and don't drop a case as redundant:
+  - a 302 to `/Home` — but the redirect **prefixes** the requested path, so
+    `/Properties/StatementHistory` comes back as
+    `/Home/Properties/StatementHistory`. Match the path *starting* with
+    `/Home`, not ending with it.
+  - a `200` serving the login form (`id="txtPassword"`).
+  - **a `200` with an empty body and no redirect** (`/Account/Profile`,
+    `/Notifications/List`). This one is silent: without the check, the parser
+    finds nothing and the CLI cheerfully reports "no notifications found" with
+    exit 0 to a logged-out user. Nothing this CLI requests legitimately answers
+    with an empty body.
 - **`PaymentTotal` is `0` on processed records.** The portal computes it only
   while composing a payment. `total` is derived as amount + fee.
 - **.NET sentinel dates.** `/Date(-62135596800000…)/` is `DateTime.MinValue` and

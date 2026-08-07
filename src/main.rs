@@ -4,7 +4,7 @@
 //! Conforms to piekstra-cli/1. Read-only today: every command observes, none
 //! mutate. The portal's write surface — payments, schedules, saved payment
 //! methods, profile edits — is catalogued in `src/writes.rs` and printed by
-//! `wabhoa capabilities`, deliberately unimplemented.
+//! `wabhoa writes`, deliberately unimplemented.
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;

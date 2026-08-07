@@ -44,14 +44,28 @@ This is why `wabhoa` uses the `password` auth method rather than the
 
 ### Session expiry
 
-An expired session **302s to `/Home`** (the login page) rather than answering
-`401`, so the client checks where it *landed*, plus two more tells — all three
-map to `CliError::Auth` (exit 3):
+The portal **never answers `401`** for an expired session. It refuses in three
+different ways depending on the endpoint, all confirmed against a genuinely
+expired session on 2026-08-07, and all mapped to `CliError::Auth` (exit 3):
 
-- final URL is `/Home` for a request that didn't ask for `/Home`
-- an HTML body where JSON was expected
-- a `200` body containing `id="txtPassword"` (the login form served in place of
-  the page you asked for)
+| Tell | Endpoints observed | Shape |
+| --- | --- | --- |
+| Bounced to the login page | `/Payment/MakePayment`, `/DashboardContent` | 302 → `/Home` |
+| Bounced, path preserved | `/Properties/StatementHistory` | 302 → **`/Home/Properties/StatementHistory`** |
+| Empty page | `/Account/Profile`, `/Notifications/List` | **HTTP 200, `Content-Length: 0`, no redirect** |
+
+Two traps here, both of which this client got wrong at first:
+
+- The redirect **prefixes** the requested path onto `/Home`, so a check for a
+  URL *ending* in `/Home` catches only the bare case. Match on the path
+  starting with `/Home`.
+- The empty-200 case has no redirect and no marker of any kind. A parser fed a
+  zero-byte page just returns nothing, so the CLI reported "no notifications
+  found" and exit 0 to a logged-out user — a wrong answer, not an error.
+  Nothing this CLI requests legitimately answers with an empty body, so an
+  empty body is always expiry.
+
+An HTML body where JSON was expected is treated the same way.
 
 ### Session rotation
 

@@ -42,7 +42,7 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<(), CliError> {
 
     if body.is_some() && writes::is_write(&args.path) {
         return Err(CliError::ConfirmationRequired(format!(
-            "{} is a write endpoint and this CLI is read-only — see `wabhoa capabilities`",
+            "{} is a write endpoint and this CLI is read-only — see `wabhoa writes`",
             args.path
         )));
     }

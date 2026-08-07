@@ -257,23 +257,15 @@ impl Portal {
 
     /// Map the portal's responses onto the family exit codes.
     ///
-    /// An expired ServiceStack session answers with a `302` to `/Home` (the
-    /// login page) rather than a `401`, so landing there is the real "session
-    /// expired" signal.
+    /// Session expiry is the subtle part: the portal never answers `401` for
+    /// it. See [`expired_session`] for the tells.
     fn handle_text(
         &self,
         resp: reqwest::blocking::Response,
         path: &str,
     ) -> Result<String, CliError> {
         let status = resp.status();
-        let final_url = resp.url().to_string();
-        let landed_on_login = final_url.ends_with("/Home") || final_url.contains("/Home?");
-        // A request that *asked* for /Home hasn't been bounced anywhere.
-        if landed_on_login && !path.starts_with("/Home") {
-            return Err(CliError::Auth(
-                "portal session expired — run `wabhoa auth login`".into(),
-            ));
-        }
+        let final_path = resp.url().path().to_string();
         if matches!(status.as_u16(), 401 | 403) {
             return Err(CliError::Auth(format!(
                 "portal returned {} for {path} — run `wabhoa auth login`",
@@ -293,14 +285,44 @@ impl Portal {
                 body_hint(&text)
             )));
         }
-        // The login page served with a 200 also means the session is gone.
-        if !path.starts_with("/Home") && text.contains("id=\"txtPassword\"") {
-            return Err(CliError::Auth(
-                "portal served the login page — session expired; run `wabhoa auth login`".into(),
-            ));
+        if let Some(tell) = expired_session(path, &final_path, &text) {
+            return Err(CliError::Auth(format!("{tell} — run `wabhoa auth login`")));
         }
         Ok(text)
     }
+}
+
+/// Whether a response is the portal's way of saying "your session is gone",
+/// and which tell gave it away.
+///
+/// The portal never answers `401` for an expired session. It has three
+/// distinct ways of refusing instead, all observed on a genuinely expired
+/// session — and a client that checks only one of them reports "you have no
+/// notifications" to a logged-out user, which is worse than an error:
+///
+/// 1. **Bounced to the login page.** The redirect *prefixes* the requested
+///    path with `/Home`, so `/Properties/StatementHistory` comes back as
+///    `/Home/Properties/StatementHistory` — matching on the URL merely
+///    *ending* in `/Home` misses every one of these but the bare case.
+/// 2. **The login form served in place of the page**, with a `200`.
+/// 3. **An empty `200` with no redirect at all** — how `/Account/Profile` and
+///    `/Notifications/List` refuse. Nothing this CLI requests legitimately
+///    answers with an empty body, so a blank page is always this.
+///
+/// A request that *asked* for `/Home` hasn't been bounced anywhere, so the
+/// first two tells exempt it.
+fn expired_session(requested: &str, final_path: &str, body: &str) -> Option<&'static str> {
+    let asked_for_home = requested.starts_with("/Home");
+    if !asked_for_home && (final_path == "/Home" || final_path.starts_with("/Home/")) {
+        return Some("portal session expired");
+    }
+    if !asked_for_home && body.contains("id=\"txtPassword\"") {
+        return Some("portal served the login page (session expired)");
+    }
+    if body.trim().is_empty() {
+        return Some("portal returned an empty page (session expired)");
+    }
+    None
 }
 
 /// Parse a response body as JSON, reporting an HTML body as session expiry.
@@ -390,6 +412,57 @@ mod tests {
         p.seed_bundle("ss-id=fresh");
         p.sync_session();
         assert_eq!(p.cookie("ss-id").as_deref(), Some("fresh"));
+    }
+
+    /// Every one of these is a response shape observed from the live portal on
+    /// a genuinely expired session (2026-08-07). Before this test, only the
+    /// bare `/Home` redirect and the login-form body were caught: `wabhoa
+    /// notifications list` answered "no notifications found" with exit 0 to a
+    /// logged-out user, and `wabhoa profile` printed nothing and exited 0.
+    #[test]
+    fn every_observed_expiry_tell_is_detected() {
+        // 1. Bounced to the bare login page (/Payment/MakePayment).
+        assert!(expired_session("/Payment/MakePayment", "/Home", "<html>…</html>").is_some());
+        // 1b. Bounced with the requested path *prefixed* onto /Home — the
+        //     shape that `ends_with("/Home")` missed entirely.
+        assert!(expired_session(
+            "/Properties/StatementHistory",
+            "/Home/Properties/StatementHistory",
+            "<html>…</html>"
+        )
+        .is_some());
+        // 2. The login form served in place of the page, HTTP 200.
+        assert!(expired_session(
+            "/Properties/StatementHistory",
+            "/Properties/StatementHistory",
+            r#"<input id="txtPassword" type="password">"#
+        )
+        .is_some());
+        // 3. An empty 200 with no redirect (/Account/Profile,
+        //    /Notifications/List). This is the one that silently returned
+        //    "no data" instead of "logged out".
+        assert!(expired_session("/Account/Profile", "/Account/Profile", "").is_some());
+        assert!(expired_session("/Notifications/List", "/Notifications/List", "   \n").is_some());
+    }
+
+    #[test]
+    fn a_live_response_is_not_mistaken_for_expiry() {
+        assert!(expired_session(
+            "/Payment/MakePayment",
+            "/Payment/MakePayment",
+            r#"<select id="idPropertyMember"><option value="1">x</option></select>"#
+        )
+        .is_none());
+        // JSON from a search endpoint.
+        assert!(expired_session(
+            "/Payment/PaymentHistorySearch",
+            "/Payment/PaymentHistorySearch",
+            "{}"
+        )
+        .is_none());
+        // Asking for the login page itself is not "being bounced" to it, and
+        // its body legitimately carries the password field.
+        assert!(expired_session("/Home", "/Home", r#"<input id="txtPassword">"#).is_none());
     }
 
     #[test]

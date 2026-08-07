@@ -208,6 +208,38 @@ fn api_refuses_to_post_to_a_write_endpoint() {
     }
 }
 
+/// Error messages routinely name a command to run next. A rename that misses
+/// one sends the user to a command that doesn't exist — which is exactly what
+/// happened when `capabilities` became `writes`, and the write guard kept
+/// pointing at the old name.
+#[test]
+fn error_messages_only_reference_real_commands() {
+    let cases: Vec<Vec<&str>> = vec![
+        vec!["api", "/Payment/SubmittPayment", "--data", "{}"],
+        vec!["payments", "list", "--start", "06/01/2026"],
+        vec!["config", "set", "nope", "x"],
+        vec!["api", "/DashboardContent", "--data", "{oops"],
+    ];
+    for args in cases {
+        let out = wabhoa().args(&args).assert().failure();
+        let stderr = String::from_utf8_lossy(&out.get_output().stderr).to_string();
+        // Every `wabhoa <word>` the message suggests must name a real command.
+        for mention in stderr.split("wabhoa ").skip(1) {
+            let suggested: String = mention
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '-')
+                .collect();
+            if suggested.is_empty() {
+                continue;
+            }
+            assert!(
+                COMMANDS.contains(&suggested.as_str()),
+                "error for `{args:?}` suggests `wabhoa {suggested}`, which is not a command:\n{stderr}"
+            );
+        }
+    }
+}
+
 #[test]
 fn an_unknown_config_key_is_a_usage_error() {
     wabhoa()
