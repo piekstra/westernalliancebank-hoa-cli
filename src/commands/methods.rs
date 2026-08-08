@@ -20,7 +20,7 @@ pub enum Cmd {
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     let Cmd::List = cmd;
-    let methods = parse::payment_methods(&ctx.client()?.get_text(PAYMENT_PAGE)?);
+    let methods = ctx.read(|c| Ok(parse::payment_methods(&c.get_text(PAYMENT_PAGE)?)))?;
     if methods.is_empty() {
         note_empty(ctx, "payment methods");
     }

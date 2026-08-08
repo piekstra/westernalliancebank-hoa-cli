@@ -37,8 +37,22 @@ $ wabhoa summary
 ```
 
 `auth login` stores your password in the OS keychain and caches the portal
-session there too. Later commands reuse the session; when the portal expires it,
-any command exits 3 and tells you to run `auth login` again.
+session there too. Later commands reuse the session.
+
+**The portal expires sessions within a day.** Rather than making you re-run
+`auth login` most mornings, commands re-authenticate automatically from the
+stored password and retry once — announced on stderr, never silently:
+
+```console
+$ wabhoa summary
+session expired — re-authenticating as you@example.com
+Properties:
+...
+```
+
+Turn it off with `wabhoa config set auto_login false`, and expired sessions go
+back to exiting 3 with instructions. Recovery is attempted **at most once** per
+command, so a portal that keeps rejecting can't turn into a login loop.
 
 To load the password from a password manager instead of typing it:
 
@@ -150,6 +164,7 @@ appear alongside it.
 | --- | --- | --- |
 | `username` | — | Portal login email. Also read from `$WABHOA_USERNAME`. |
 | `base_url` | `https://pay.westernalliancebank.com` | For the other banks on this platform. |
+| `auto_login` | `true` | Re-authenticate automatically when the portal expires the session. |
 
 Secrets never land here. The password and the cached session live in the OS
 keychain under service `piekstra.wabhoa`, accounts `password` and `session`.

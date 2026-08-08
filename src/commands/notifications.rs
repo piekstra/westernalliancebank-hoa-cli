@@ -24,7 +24,7 @@ pub enum Cmd {
 }
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
-    let page = ctx.client()?.get_text(NOTIFICATIONS_PAGE)?;
+    let page = ctx.read(|c| c.get_text(NOTIFICATIONS_PAGE))?;
     let all = parse::notifications(&page);
 
     match cmd {

@@ -13,6 +13,5 @@ pub mod client;
 pub mod commands;
 pub mod config;
 pub mod dates;
-pub mod html;
 pub mod parse;
 pub mod writes;

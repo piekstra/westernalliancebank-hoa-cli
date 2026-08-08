@@ -16,7 +16,7 @@ pub enum Cmd {
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     let Cmd::List = cmd;
-    let dashboard = ctx.client()?.get_text(DASHBOARD_CONTENT)?;
+    let dashboard = ctx.read(|c| c.get_text(DASHBOARD_CONTENT))?;
     let scheduled = parse::scheduled_payments(&dashboard);
     if scheduled.is_empty() {
         note_empty(ctx, "scheduled payments");

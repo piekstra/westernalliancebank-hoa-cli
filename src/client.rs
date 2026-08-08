@@ -325,6 +325,28 @@ fn expired_session(requested: &str, final_path: &str, body: &str) -> Option<&'st
     None
 }
 
+/// Log in and cache the resulting session in the keychain.
+///
+/// Shared by the explicit `auth login` and the automatic recovery in
+/// [`crate::commands::Ctx::read`], so both prove the session works before
+/// storing it: a login that can't actually read leaves no broken session
+/// behind, and the cookies stored are the ones that survived that read, since
+/// the portal may rotate them mid-flight.
+pub fn establish_session(
+    cfg: &Config,
+    creds: &CredentialStore,
+    username: &str,
+    password: &Secret,
+) -> Result<(), CliError> {
+    let portal = Portal::new(cfg.base_url())?;
+    portal.login(username, password)?;
+    portal.get_text(crate::commands::HISTORY_PAGE)?;
+    let session = portal.session_bundle().ok_or_else(|| {
+        CliError::Upstream("login succeeded but the portal issued no session cookie".into())
+    })?;
+    creds.set(SESSION_ACCOUNT, &session)
+}
+
 /// Parse a response body as JSON, reporting an HTML body as session expiry.
 fn parse_json(text: &str, path: &str) -> Result<Value, CliError> {
     if text.trim().is_empty() {

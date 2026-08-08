@@ -15,10 +15,10 @@ use pk_cli_core::{output, CliError, CommonArgs};
 use pk_cli_secrets::CredentialStore;
 use pk_cli_selfupdate::{SelfUpdateArgs, Updater};
 
-use wabhoa::client::Portal;
+use wabhoa::client::establish_session;
 use wabhoa::commands::{
     api, methods, notifications, payments, profile, properties, scheduled, statements, summary,
-    writes, Ctx, HISTORY_PAGE,
+    writes, Ctx,
 };
 use wabhoa::config::{self, Config, KEYCHAIN_ACCOUNT, SESSION_ACCOUNT};
 
@@ -253,19 +253,7 @@ fn login(
         }
     };
 
-    let portal = Portal::new(cfg.base_url())?;
-    portal.login(&username, &password)?;
-
-    // Prove the session actually reads *before* caching it, so a login that
-    // can't fetch anything leaves no broken session behind — and so the cookies
-    // we store are the ones surviving that read, since the portal may rotate
-    // them.
-    portal.get_text(HISTORY_PAGE)?;
-
-    let session = portal.session_bundle().ok_or_else(|| {
-        CliError::Upstream("login succeeded but the portal issued no session cookie".into())
-    })?;
-    creds.set(SESSION_ACCOUNT, &session)?;
+    establish_session(cfg, creds, &username, &password)?;
     if !cli.common.quiet {
         eprintln!("session cached in the OS keychain ({})", creds.service());
     }
@@ -293,6 +281,7 @@ fn config_cmd(cli: &Cli, cmd: &ConfigCmd, store: &ConfigStore) -> Result<(), Cli
             match key.as_str() {
                 "base_url" => cfg.base_url = Some(value.clone()),
                 "username" => cfg.username = Some(value.clone()),
+                "auto_login" => cfg.auto_login = Some(parse_bool(value)?),
                 other => return Err(unknown_key(other)),
             }
             store.save(&cfg)
@@ -302,10 +291,23 @@ fn config_cmd(cli: &Cli, cmd: &ConfigCmd, store: &ConfigStore) -> Result<(), Cli
             match key.as_str() {
                 "base_url" => cfg.base_url = None,
                 "username" => cfg.username = None,
+                "auto_login" => cfg.auto_login = None,
                 other => return Err(unknown_key(other)),
             }
             store.save(&cfg)
         }
+    }
+}
+
+/// Parse a boolean config value, accepting the spellings a user actually
+/// types rather than only Rust's.
+fn parse_bool(v: &str) -> Result<bool, CliError> {
+    match v.trim().to_ascii_lowercase().as_str() {
+        "true" | "yes" | "on" | "1" => Ok(true),
+        "false" | "no" | "off" | "0" => Ok(false),
+        other => Err(CliError::Usage(format!(
+            "expected a boolean (true/false), got `{other}`"
+        ))),
     }
 }
 

@@ -35,10 +35,10 @@ Run `make verify` before considering a change done — it's exactly what CI runs
 - `src/client.rs` — the HTTP client: cookie session, login, rotation write-back,
   and the redirect-means-expired detection. Its module doc explains the auth
   model.
-- `src/html.rs` — small, total HTML scanners. No DOM parser dependency on
-  purpose; see its module doc.
 - `src/parse.rs` — page/JSON → flat DTOs. **The interesting logic lives here**,
-  because the portal has no API contract, only markup that can drift.
+  because the portal has no API contract, only markup that can drift. The HTML
+  scanning itself is `pk-cli-scrape`; this file holds the portal's own element
+  IDs, attribute names, and CSS classes, which are policy and stay here.
 - `src/commands/*.rs` — one module per command group; each renders a human table
   and a `--json` DTO.
 - `src/writes.rs` — catalog of the portal's mutating endpoints. Powers both
@@ -77,6 +77,13 @@ Run `make verify` before considering a change done — it's exactly what CI runs
   `balance_published: false`; `parse::properties` drops `attr_Balance` for the
   same reason. Do not "restore the missing balance column" — printing `0.00`
   there tells the user they owe nothing, which may be false.
+- **Reads go through `Ctx::read`, not `Ctx::client`.** That is what wraps them
+  in `pk_cli_auth::reauth::with_reauth`, so a lapsed session is recovered from
+  the stored password instead of failing. A command that calls `client()`
+  directly silently opts out of that. Multi-request commands put **all** their
+  reads inside one `read` call — `summary` does — because a session that lapses
+  midway would otherwise render a half-empty dashboard that reads as "no data".
+  `read` is for reads only: the closure runs twice on the recovery path.
 - **An expired session never returns 401** — it has *three* different shapes,
   and `client::expired_session` checks all of them. Don't reduce it to a status
   check, and don't drop a case as redundant:

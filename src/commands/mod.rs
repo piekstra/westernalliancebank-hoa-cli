@@ -12,12 +12,17 @@ pub mod statements;
 pub mod summary;
 pub mod writes;
 
-use pk_cli_core::{output, CliError, CommonArgs};
+use pk_cli_auth::reauth::with_reauth;
+use pk_cli_core::{CliError, CommonArgs};
 use pk_cli_secrets::CredentialStore;
 use serde_json::Value;
 
-use crate::client::Portal;
-use crate::config::Config;
+use crate::client::{establish_session, Portal};
+use crate::config::{Config, KEYCHAIN_ACCOUNT};
+
+// §1.4's output contract now lives in the shared crate; re-exported so the
+// command modules keep their short `use super::{emit, table_view}`.
+pub use pk_cli_core::output::{rows_of as items, table_view};
 
 /// Portal paths the reads share.
 pub const PAYMENT_PAGE: &str = "/Payment/MakePayment";
@@ -41,47 +46,79 @@ impl Ctx<'_> {
     pub fn client(&self) -> Result<Portal, CliError> {
         Portal::from_cached_session(self.cfg, self.creds)
     }
-}
 
-/// Emit a DTO: tagged payload in JSON mode, rendered view in text mode.
-pub fn emit(ctx: &Ctx, schema: &str, payload: Value, text: impl FnOnce(&Value)) {
-    if ctx.common.json {
-        let mut tagged = serde_json::Map::new();
-        tagged.insert("schema".into(), Value::String(format!("{schema}/v1")));
-        match payload {
-            Value::Object(m) => tagged.extend(m),
-            other => {
-                tagged.insert("data".into(), other);
-            }
+    /// Run a read against the portal, re-authenticating once if the session
+    /// has lapsed.
+    ///
+    /// This portal expires sessions within a day, so without this nearly every
+    /// first command of the day would fail with exit 3 for a session the CLI
+    /// can mint again unattended — the password is already in the keychain and
+    /// there is no second factor.
+    ///
+    /// **Reads only.** `op` runs twice on the recovery path; the retry rails
+    /// live in `pk_cli_auth::reauth`.
+    pub fn read<T>(&self, op: impl Fn(&Portal) -> Result<T, CliError>) -> Result<T, CliError> {
+        with_reauth(
+            // Rebuilt per attempt so the retry picks up the session that
+            // `relogin` just wrote to the keychain.
+            || op(&self.client()?),
+            || self.relogin(),
+        )
+    }
+
+    /// Mint a fresh session from the stored password.
+    ///
+    /// Declining is a normal outcome, not a failure to paper over: when
+    /// `auto_login` is off or nothing is stored to log in with, this returns
+    /// the same exit-3 guidance the user would have seen anyway.
+    fn relogin(&self) -> Result<(), CliError> {
+        let username = self.cfg.username();
+        let password = self.creds.get(KEYCHAIN_ACCOUNT)?;
+        if let Some(reason) = relogin_blocked(
+            self.cfg.auto_login(),
+            username.as_deref(),
+            password.is_some(),
+        ) {
+            return Err(CliError::Auth(reason));
         }
-        output::json(&Value::Object(tagged));
-    } else {
-        text(&payload);
+        let (username, password) = (username.expect("checked"), password.expect("checked"));
+        // Announced rather than silent: the password leaving the keychain is
+        // worth one line of stderr, and it explains the extra round trip.
+        if !self.common.quiet {
+            eprintln!("session expired — re-authenticating as {username}");
+        }
+        establish_session(self.cfg, self.creds, &username, &password)
     }
 }
 
-/// Pull selected columns out of an array of objects for table rendering.
-pub fn table_view(items: &[Value], columns: &[&str]) -> Vec<Value> {
-    items
-        .iter()
-        .map(|item| {
-            let mut row = serde_json::Map::new();
-            for col in columns {
-                if let Some(v) = item.get(*col) {
-                    row.insert((*col).to_string(), v.clone());
-                }
-            }
-            Value::Object(row)
-        })
-        .collect()
+/// Why an automatic re-login can't proceed, if it can't.
+///
+/// Split out from the action so the policy is testable without a keychain, and
+/// so every refusal still tells the user the one command that fixes it.
+fn relogin_blocked(auto_login: bool, username: Option<&str>, has_password: bool) -> Option<String> {
+    if !auto_login {
+        return Some("portal session expired — run `wabhoa auth login` (auto_login is off)".into());
+    }
+    if username.is_none() {
+        return Some(
+            "portal session expired and no username is configured — run \
+             `wabhoa config set username <you@example.com>`, then `wabhoa auth login`"
+                .into(),
+        );
+    }
+    if !has_password {
+        return Some(
+            "portal session expired and no password is stored — run `wabhoa auth login`".into(),
+        );
+    }
+    None
 }
 
-/// Read an array field out of an emitted payload for the text renderer.
-pub fn items(v: &Value, key: &str) -> Vec<Value> {
-    v.get(key)
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
+/// Emit a DTO, taking the `--json` flag off the context.
+///
+/// A thin adapter over `pk_cli_core::output::emit`, which owns the contract.
+pub fn emit(ctx: &Ctx, schema: &str, payload: Value, text: impl FnOnce(&Value)) {
+    pk_cli_core::output::emit(ctx.common.json, schema, payload, text)
 }
 
 /// Print a "nothing here" line to stderr, so stdout stays a clean (empty)
@@ -95,6 +132,38 @@ pub fn note_empty(ctx: &Ctx, what: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relogin_proceeds_when_everything_is_in_place() {
+        assert_eq!(relogin_blocked(true, Some("you@example.com"), true), None);
+    }
+
+    #[test]
+    fn relogin_declines_when_auto_login_is_off() {
+        let why = relogin_blocked(false, Some("you@example.com"), true).expect("blocked");
+        assert!(why.contains("auto_login is off"), "{why}");
+        // Even when declining, the user is told what to run.
+        assert!(why.contains("wabhoa auth login"), "{why}");
+    }
+
+    /// auto_login off wins over anything else, so turning it off is a real
+    /// switch and not merely a preference the other branches can override.
+    #[test]
+    fn auto_login_off_takes_precedence_over_missing_credentials() {
+        let why = relogin_blocked(false, None, false).expect("blocked");
+        assert!(why.contains("auto_login is off"), "{why}");
+    }
+
+    #[test]
+    fn relogin_declines_without_a_username_or_password() {
+        let no_user = relogin_blocked(true, None, true).expect("blocked");
+        assert!(no_user.contains("config set username"), "{no_user}");
+
+        let no_pass = relogin_blocked(true, Some("you@example.com"), false).expect("blocked");
+        assert!(no_pass.contains("no password is stored"), "{no_pass}");
+        assert!(no_pass.contains("wabhoa auth login"), "{no_pass}");
+    }
+
     use serde_json::json;
 
     #[test]

@@ -5,13 +5,39 @@
 
 use serde_json::{json, Map, Value};
 
+use pk_cli_scrape as scrape;
+
 use crate::dates::{from_dotnet, from_portal};
-use crate::html;
+
+/// The CSS classes this portal marks table rows and cells with. The generic
+/// scanners in `pk-cli-scrape` take these as arguments precisely because they
+/// are the provider's naming, not a universal convention.
+const ROW_CLASS: &str = "divTableRow";
+const CELL_CLASS: &str = "divTableCell";
+
+/// Every table row on a page, in both dialects the portal renders — real
+/// `<tr>` elements and `<div class="divTableRow">` stacks, sometimes on the
+/// same page.
+fn rows(html: &str) -> Vec<String> {
+    let mut out = scrape::table_rows(html);
+    out.extend(scrape::blocks_with_class(html, "div", ROW_CLASS));
+    out
+}
+
+/// The cells of a row, in whichever dialect it was rendered.
+fn cells(row: &str) -> Vec<String> {
+    let tds = scrape::cells(row);
+    if tds.is_empty() {
+        scrape::cells_with_class(row, "div", CELL_CLASS)
+    } else {
+        tds
+    }
+}
 
 /// The signed-in user's site-user ID, a hidden field on the payment-history
 /// page. The history search will not filter by user without it.
 pub fn site_user_id(history_page: &str) -> Option<String> {
-    html::input_value(history_page, "idSiteUserLogin").filter(|v| !v.is_empty())
+    scrape::input_value(history_page, "idSiteUserLogin").filter(|v| !v.is_empty())
 }
 
 /// Properties, from the `idPropertyMember` select on the payment page.
@@ -20,18 +46,18 @@ pub fn site_user_id(history_page: &str) -> Option<String> {
 /// — management company, association, and account number — which the balance
 /// endpoint needs as its key.
 pub fn properties(payment_page: &str) -> Vec<Value> {
-    let Some(select) = html::block_by_id(payment_page, "select", "idPropertyMember") else {
+    let Some(select) = scrape::block_by_id(payment_page, "select", "idPropertyMember") else {
         return Vec::new();
     };
-    html::elements(&select, "option")
+    scrape::elements(&select, "option")
         .into_iter()
         .filter_map(|opt| {
-            let id = html::attr(&opt.tag, "value").filter(|v| !v.is_empty())?;
+            let id = scrape::attr(&opt.tag, "value").filter(|v| !v.is_empty())?;
             let mut row = Map::new();
             row.insert("id".into(), json!(id));
             row.insert(
                 "address".into(),
-                json!(html::attr(&opt.tag, "attr_Address")
+                json!(scrape::attr(&opt.tag, "attr_Address")
                     .unwrap_or_else(|| opt.text.clone())
                     .trim()
                     .to_string()),
@@ -49,7 +75,7 @@ pub fn properties(payment_page: &str) -> Vec<Value> {
             insert_str(&mut row, "owner", &opt.tag, "attr_FullName");
             insert_str(&mut row, "email", &opt.tag, "attr_EmailAddress");
             insert_str(&mut row, "phone", &opt.tag, "attr_Phone");
-            if let Some(a) = html::attr(&opt.tag, "attr_hasamenities") {
+            if let Some(a) = scrape::attr(&opt.tag, "attr_hasamenities") {
                 row.insert("has_amenities".into(), json!(a.eq_ignore_ascii_case("yes")));
             }
             // A stop code means the association has flagged the account; it is
@@ -63,15 +89,15 @@ pub fn properties(payment_page: &str) -> Vec<Value> {
 /// Saved payment methods, from the `idPaymentMethod` select on the payment
 /// page. Richer than the Payment Methods page, which omits the method IDs.
 pub fn payment_methods(payment_page: &str) -> Vec<Value> {
-    let Some(select) = html::block_by_id(payment_page, "select", "idPaymentMethod") else {
+    let Some(select) = scrape::block_by_id(payment_page, "select", "idPaymentMethod") else {
         return Vec::new();
     };
-    html::elements(&select, "option")
+    scrape::elements(&select, "option")
         .into_iter()
         .filter_map(|opt| {
-            let id = html::attr(&opt.tag, "value").filter(|v| !v.is_empty())?;
+            let id = scrape::attr(&opt.tag, "value").filter(|v| !v.is_empty())?;
             // The placeholder row carries a "none" type rather than no value.
-            let kind = html::attr(&opt.tag, "attr_PaymentType")?;
+            let kind = scrape::attr(&opt.tag, "attr_PaymentType")?;
             if kind.eq_ignore_ascii_case("none") {
                 return None;
             }
@@ -105,13 +131,13 @@ fn split_mask(label: &str) -> (String, Option<String>) {
 
 /// Scheduled (recurring) payments, from the dashboard partial.
 pub fn scheduled_payments(dashboard: &str) -> Vec<Value> {
-    html::rows(dashboard)
+    rows(dashboard)
         .iter()
         .filter_map(|row| {
             let tag_end = row.find('>').map(|i| i + 1).unwrap_or(row.len());
             let tag = &row[..tag_end];
-            let id = html::attr(tag, "data-payment-id").filter(|v| !v.is_empty())?;
-            let cells = html::cells(row);
+            let id = scrape::attr(tag, "data-payment-id").filter(|v| !v.is_empty())?;
+            let cells = cells(row);
             let mut out = Map::new();
             out.insert("id".into(), json!(id));
             // Cell 1 is the property; cell 0 holds the payment-type icon.
@@ -176,8 +202,8 @@ pub fn notifications(page: &str) -> Vec<Value> {
     let bodies = message_bodies(page);
     let mut out = Vec::new();
     let mut seen = 0usize;
-    for row in html::rows(page) {
-        let cells = html::cells(&row);
+    for row in rows(page) {
+        let cells = cells(&row);
         // Date, subject, to, cc — anything shorter is a header or a spacer.
         if cells.len() < 3 {
             continue;
@@ -188,7 +214,7 @@ pub fn notifications(page: &str) -> Vec<Value> {
         let mut item = Map::new();
         if let Some((id, body)) = bodies.get(seen) {
             item.insert("id".into(), json!(id));
-            item.insert("body".into(), json!(html::strip_tags(body)));
+            item.insert("body".into(), json!(scrape::strip_tags(body)));
         }
         seen += 1;
         item.insert("date".into(), json!(date));
@@ -247,10 +273,10 @@ fn quoted_after(s: &str, label: &str) -> Option<String> {
 /// row shape rather than a verified layout; an unrecognized row is skipped
 /// instead of guessed at.
 pub fn statements(page: &str) -> Vec<Value> {
-    html::rows(page)
+    rows(page)
         .iter()
         .filter_map(|row| {
-            let cells = html::cells(row);
+            let cells = cells(row);
             if cells.len() < 2 {
                 return None;
             }
@@ -276,7 +302,7 @@ pub fn profile(page: &str) -> Value {
         ("phone", "txtPhoneNumber"),
         ("email", "txtEmailAddress"),
     ] {
-        if let Some(v) = html::input_value(page, id).filter(|v| !v.is_empty()) {
+        if let Some(v) = scrape::input_value(page, id).filter(|v| !v.is_empty()) {
             out.insert(key.into(), json!(v));
         }
     }
@@ -322,21 +348,21 @@ pub fn balance(options: &Value) -> Value {
 
 /// Insert an attribute as a string, skipping it when absent or blank.
 fn insert_str(out: &mut Map<String, Value>, key: &str, tag: &str, attr: &str) {
-    if let Some(v) = html::attr(tag, attr).filter(|v| !v.trim().is_empty()) {
+    if let Some(v) = scrape::attr(tag, attr).filter(|v| !v.trim().is_empty()) {
         out.insert(key.into(), json!(v.trim()));
     }
 }
 
 /// Insert an attribute parsed as money, skipping it when absent or unparseable.
 fn insert_num(out: &mut Map<String, Value>, key: &str, tag: &str, attr: &str) {
-    if let Some(v) = html::attr(tag, attr).and_then(|v| money(&v)) {
+    if let Some(v) = scrape::attr(tag, attr).and_then(|v| money(&v)) {
         out.insert(key.into(), json!(v));
     }
 }
 
 /// Insert an attribute holding an `MM/DD/YYYY` date, normalized to ISO.
 fn insert_date(out: &mut Map<String, Value>, key: &str, tag: &str, attr: &str) {
-    if let Some(v) = html::attr(tag, attr).as_deref().and_then(from_portal) {
+    if let Some(v) = scrape::attr(tag, attr).as_deref().and_then(from_portal) {
         out.insert(key.into(), json!(v));
     }
 }

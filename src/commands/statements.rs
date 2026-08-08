@@ -19,7 +19,7 @@ pub enum Cmd {
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     let Cmd::List = cmd;
-    let statements = parse::statements(&ctx.client()?.get_text(STATEMENTS_PAGE)?);
+    let statements = ctx.read(|c| Ok(parse::statements(&c.get_text(STATEMENTS_PAGE)?)))?;
     if statements.is_empty() {
         note_empty(ctx, "statements");
     }

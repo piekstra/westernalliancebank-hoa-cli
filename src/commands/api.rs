@@ -47,15 +47,14 @@ pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<(), CliError> {
         )));
     }
 
-    let client = ctx.client()?;
     match body {
         Some(body) => {
-            let payload = client.post_json(&args.path, &body)?;
+            let payload = ctx.read(|c| c.post_json(&args.path, &body))?;
             output::json(&payload);
         }
-        None if args.raw => print!("{}", client.get_text(&args.path)?),
+        None if args.raw => print!("{}", ctx.read(|c| c.get_text(&args.path))?),
         None => {
-            let text = client.get_text(&args.path)?;
+            let text = ctx.read(|c| c.get_text(&args.path))?;
             match serde_json::from_str::<Value>(&text) {
                 Ok(payload) => output::json(&payload),
                 Err(_) => {

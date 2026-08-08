@@ -44,19 +44,14 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
         args.range.resolve()?;
     }
 
-    let client = ctx.client()?;
-    let history_page = client.get_text(HISTORY_PAGE)?;
-    let site_user = parse::site_user_id(&history_page).ok_or_else(|| {
-        CliError::Upstream(
-            "payment history page carried no site-user ID — portal markup changed?".into(),
-        )
-    })?;
-
     match cmd {
         Cmd::List(args) => {
             let (start, end) = args.range.resolve()?;
-            let body = search_body(&site_user, start, end, args.status.as_deref());
-            let mut found = parse::payments(&client.post_json(HISTORY_SEARCH, &body)?);
+            let status = args.status.as_deref();
+            // Both reads sit inside one retry: the site-user ID comes off the
+            // history page, so a session that lapses between the two would
+            // otherwise fail the search with a stale ID in hand.
+            let mut found = ctx.read(|c| search(c, start.clone(), end.clone(), status))?;
 
             // The portal ignores an account filter in the search body, so it
             // is applied here rather than pretended to be a server-side one.
@@ -93,8 +88,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             Ok(())
         }
         Cmd::Get { transaction_number } => {
-            let body = search_body(&site_user, None, None, None);
-            let found = parse::payments(&client.post_json(HISTORY_SEARCH, &body)?);
+            let found = ctx.read(|c| search(c, None, None, None))?;
             let payment = found
                 .iter()
                 .find(|p| {
@@ -108,6 +102,23 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             Ok(())
         }
     }
+}
+
+/// Fetch payment history: read the site-user ID off the history page, then
+/// post the search. Kept together so both share one session attempt.
+fn search(
+    client: &crate::client::Portal,
+    start: Option<String>,
+    end: Option<String>,
+    status: Option<&str>,
+) -> Result<Vec<Value>, CliError> {
+    let site_user = parse::site_user_id(&client.get_text(HISTORY_PAGE)?).ok_or_else(|| {
+        CliError::Upstream(
+            "payment history page carried no site-user ID — portal markup changed?".into(),
+        )
+    })?;
+    let body = search_body(&site_user, start, end, status);
+    Ok(parse::payments(&client.post_json(HISTORY_SEARCH, &body)?))
 }
 
 /// Build the search body. Every field is required by the endpoint's model

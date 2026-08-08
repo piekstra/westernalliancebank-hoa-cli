@@ -6,7 +6,7 @@ use super::{emit, Ctx, PROFILE_PAGE};
 use crate::parse;
 
 pub fn run(ctx: &Ctx) -> Result<(), CliError> {
-    let profile = parse::profile(&ctx.client()?.get_text(PROFILE_PAGE)?);
+    let profile = ctx.read(|c| Ok(parse::profile(&c.get_text(PROFILE_PAGE)?)))?;
     emit(ctx, "profile", profile, output::render);
     Ok(())
 }

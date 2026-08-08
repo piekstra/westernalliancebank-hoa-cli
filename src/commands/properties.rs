@@ -20,8 +20,7 @@ pub enum Cmd {
 }
 
 pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
-    let client = ctx.client()?;
-    let properties = parse::properties(&client.get_text(PAYMENT_PAGE)?);
+    let properties = ctx.read(|c| Ok(parse::properties(&c.get_text(PAYMENT_PAGE)?)))?;
 
     match cmd {
         Cmd::List => {
@@ -61,7 +60,7 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
             // Merge in the association's payment options, which is where a
             // published balance and the next assessment date live.
             let mut detail = found.clone();
-            if let Some(options) = fetch_options(&client, found)? {
+            if let Some(options) = ctx.read(|c| fetch_options(c, found))? {
                 if let (Value::Object(d), Value::Object(b)) =
                     (&mut detail, parse::balance(&options))
                 {

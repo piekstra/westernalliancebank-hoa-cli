@@ -29,6 +29,17 @@ pub struct Config {
     /// Portal login email (identity label only; secrets stay in the keychain).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username: Option<String>,
+
+    /// Re-authenticate automatically when the portal expires the session,
+    /// instead of failing with exit 3. Defaults to on.
+    ///
+    /// This portal expires sessions within a day, and the password needed to
+    /// mint a new one is already in the keychain — so the default spares the
+    /// user a manual `auth login` most days. Set it to `false` to require an
+    /// explicit login, which is the right choice if you'd rather the password
+    /// only leave the keychain when you say so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_login: Option<bool>,
 }
 
 impl Config {
@@ -46,7 +57,37 @@ impl Config {
                 .filter(|s| !s.is_empty())
         })
     }
+
+    /// Whether to re-authenticate automatically on session expiry.
+    pub fn auto_login(&self) -> bool {
+        self.auto_login.unwrap_or(true)
+    }
 }
 
 /// Config keys settable via `wabhoa config set <key> <value>`.
-pub const KNOWN_KEYS: &[&str] = &["base_url", "username"];
+pub const KNOWN_KEYS: &[&str] = &["base_url", "username", "auto_login"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auto_login_defaults_on_but_is_overridable() {
+        assert!(Config::default().auto_login());
+        let off = Config {
+            auto_login: Some(false),
+            ..Default::default()
+        };
+        assert!(!off.auto_login());
+    }
+
+    #[test]
+    fn base_url_falls_back_to_the_default_portal() {
+        assert_eq!(Config::default().base_url(), DEFAULT_BASE_URL);
+        let other = Config {
+            base_url: Some("https://pay.allianceassociationbank.com".into()),
+            ..Default::default()
+        };
+        assert_eq!(other.base_url(), "https://pay.allianceassociationbank.com");
+    }
+}
