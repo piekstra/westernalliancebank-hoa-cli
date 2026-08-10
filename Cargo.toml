@@ -26,17 +26,13 @@ serde = { version = "1", features = ["derive"] }
 # preserve_order keeps DTO fields and table columns in the order the code
 # builds them, rather than alphabetized by serde_json's default BTreeMap.
 serde_json = { version = "1", features = ["preserve_order"] }
-# Pinned to a commit rather than a tag while cli-common#5 (pk-cli-scrape,
-# reauth, ASP.NET dates, the output helpers) is in review. Move these back to
-# `tag = "vX.Y.Z"` once it merges and a release is cut — the family convention
-# is tag-pinned deps, and a rev pin is a temporary state, not a new habit.
-pk-cli-core = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e", features = ["reqwest"] }
-pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e" }
-pk-cli-config = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e" }
-pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e" }
-pk-cli-auth = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e" }
-pk-cli-http = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e" }
-pk-cli-scrape = { git = "https://github.com/piekstra/cli-common", rev = "3356738e2696bd9487d2ce39cae00bf01055d07e" }
+pk-cli-core = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0", features = ["reqwest"] }
+pk-cli-secrets = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0" }
+pk-cli-config = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0" }
+pk-cli-selfupdate = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0" }
+pk-cli-auth = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0" }
+pk-cli-http = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0" }
+pk-cli-scrape = { git = "https://github.com/piekstra/cli-common", tag = "v0.4.0" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "cookies", "rustls-tls"] }
 
 [dev-dependencies]
