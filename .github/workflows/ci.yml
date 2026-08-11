@@ -12,22 +12,17 @@ env:
 jobs:
   build:
     name: fmt / clippy / test / build
-    # Linux while this repo is private: private-repo minutes bill macOS at 10x,
-    # and the sibling CLIs only get away with `macos-latest` because they are
-    # public (where runners are free). The tests are pure logic and never touch
-    # the keychain, so the only thing Linux costs us is compiling `keyring`
-    # against its libsecret backend instead of the apple-native one — which the
-    # libdbus install below covers. Restore the macOS runner when this repo goes
-    # public, since macOS is the platform the tool actually targets.
-    runs-on: ubuntu-latest
+    # macOS: the platform the tool actually targets, so CI compiles `keyring`
+    # against the apple-native Security backend rather than libsecret. Free now
+    # that the repo is public. (It ran on ubuntu-latest while private, where
+    # macOS runners bill at 10x — the git history has that version.)
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Install keyring build deps
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all
