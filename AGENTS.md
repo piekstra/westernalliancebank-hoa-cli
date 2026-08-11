@@ -116,7 +116,15 @@ Run `make verify` before considering a change done — it's exactly what CI runs
   balance endpoint is keyed on. Don't move properties to `/Properties/Manage`,
   which omits them.
 
-## Safety & privacy (written as if this repo were public)
+## Safety & privacy (the repo is public)
+
+**Runtime PII is expected; repo PII is not.** The CLI printing your real
+balance, address, account number, or transaction data when you run it against
+your own account is the whole point — that is not a leak, and nothing masks or
+redacts it. The rule is strictly about the **repository**: code, fixtures,
+docs, examples, commit messages, PR bodies, and git history must contain only
+scrubbed dummies. When something looks like a privacy concern, ask "does this
+land in the repo?" — if not, it's fine.
 
 - Never commit a password, session cookie, real name, address, balance,
   transaction number, or account/property ID.
