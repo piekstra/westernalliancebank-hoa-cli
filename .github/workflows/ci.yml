@@ -36,6 +36,16 @@ jobs:
   security:
     name: audit / deny / secrets
     runs-on: ubuntu-latest
+    # gitleaks-action calls the PR API to enumerate the commits to scan, and
+    # cargo-audit posts advisory annotations. Without these the job dies with
+    # "Resource not accessible by integration" — but only on pull_request
+    # events, since a push carries its commits in the payload. Every run so far
+    # has been a push, which is why this hasn't bitten yet; rpm-fl-cli's first
+    # PR failed exactly this way.
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
     steps:
       - uses: actions/checkout@v4
         with:
