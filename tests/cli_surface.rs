@@ -65,6 +65,7 @@ fn nested_subcommand_help_renders() {
         ("methods", "list"),
         ("notifications", "list"),
         ("statements", "list"),
+        ("statements", "download"),
     ] {
         wabhoa().args([group, sub, "--help"]).assert().success();
     }
@@ -238,6 +239,42 @@ fn error_messages_only_reference_real_commands() {
             );
         }
     }
+}
+
+/// `statements download` validates its arguments before opening a session:
+/// `--all` with no output target is fine (writes to cwd), but `--all -o -`
+/// can't stream a batch to stdout, and neither can naming no id at all.
+#[test]
+fn statements_download_argument_errors_need_no_session() {
+    wabhoa()
+        .args(["statements", "download"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("statements list"));
+
+    wabhoa()
+        .args(["statements", "download", "--all", "-o", "-"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("stdout"));
+
+    // `--json` and `-o -` would both take stdout; refusing costs no session.
+    wabhoa()
+        .args(["statements", "download", "9001.pdf", "-o", "-", "--json"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("both write to stdout"));
+}
+
+/// The `download` subcommand has to reach the reader named in the error.
+#[test]
+fn statements_download_has_a_get_alias() {
+    let out = wabhoa().args(["statements", "--help"]).assert().success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("get"),
+        "expected `download` to expose a `get` alias for parity with sibling CLIs"
+    );
 }
 
 #[test]

@@ -87,6 +87,8 @@ wabhoa methods list                   # saved bank accounts/cards, masked
 wabhoa notifications list             # payment notices sent to you
 wabhoa notifications get <id>         # one notice, with its message body
 wabhoa statements list                # statement packets, if published
+wabhoa statements download <id> -o PATH   # one statement's PDF
+wabhoa statements download --all -o DIR   # every published statement
 wabhoa profile                        # the account holder on file
 wabhoa writes                         # portal writes this CLI does NOT do
 wabhoa api <path> [--data JSON] [--raw]   # raw passthrough
@@ -140,6 +142,38 @@ $ wabhoa --json payments get 10000001
   "total": 100.0
 }
 ```
+
+### Statement downloads
+
+Associations that publish PDF statement packets can be pulled locally:
+
+```console
+$ wabhoa statements list
+DATE       | DESCRIPTION            | AMOUNT | ID
+2026-01-15 | January 2026 Statement | 100.0  | 9001_SA_222222_2026-01_statement.pdf
+
+$ wabhoa statements download 9001_SA_222222_2026-01_statement.pdf
+Saved January 2026 Statement → 2026-01-15 January_2026_Statement.pdf (12345 bytes)
+
+$ wabhoa statements download --all -o ~/Documents/hoa-statements/
+```
+
+`-o PATH` writes to a file (or a directory, which gets the derived name
+appended); `-o -` streams the PDF to stdout for piping. `--all` fetches every
+statement the portal lists into the given directory (or the current one). The
+`--json` shape is `statement-download/v1` for a single fetch and
+`statement-download-batch/v1` for `--all`. Since `-o -` and `--json` would both
+claim stdout, asking for both is a usage error rather than a corrupt stream.
+
+A file is written only after the downloaded bytes are confirmed to be a PDF.
+The portal reports failures with an HTTP `200` and can hand back an HTML error
+or login page in the same base64 field a real statement arrives in, so a
+missing `%PDF-` header is treated as an upstream failure (exit 5) with nothing
+written — rather than saving a login page under a `.pdf` name and reporting
+success.
+
+Many associations publish nothing here, in which case `list` is empty and
+`download --all` reports zero. That is a portal-side fact, not a bug.
 
 ### About balances
 

@@ -1,0 +1,69 @@
+<!-- scrubbed synthetic capture: the statement-history table when the
+     association DOES publish statements. The test account's associations
+     publish none (see notes in AGENTS.md), so this row shape is reconstructed
+     from the portal's own `DownloadStatement(fileName, fileAlias)` handler in
+     Properties/StatementHistory.cshtml — that call is what `wabhoa statements
+     download` uses.
+
+     Structure preserved:
+       - table.divTable > tbody.divTableBody > tr.divTableRow, with
+         td.divTableCell for date, description-with-link, and amount cells
+       - the link's onclick shape:
+         DownloadStatement('<fileName>','<fileAlias>');
+         where fileName is the opaque server key and fileAlias is the label
+       - one row with an HTML-escaped apostrophe (`&#39;`) in the alias, to
+         make sure the parser handles the portal's own escaping
+       - one row without a link, to prove the parser tolerates it
+       - one linked row whose alias contains parentheses — a scan for the
+         call's closing `)` that isn't quote-aware truncates the alias there,
+         which silently corrupts both the description and the saved filename
+-->
+<section class="section">
+    <div class="container">
+        <h2>Statement History</h2>
+        <h3>1 Sample St </h3>
+        <table class="divTable default" style="table-layout: fixed">
+            <thead class="divTableHeading">
+                <tr class="divTableRow">
+                    <th class="divTableCell">Date</th>
+                    <th class="divTableCell">Description</th>
+                    <th class="divTableCell">Amount</th>
+                </tr>
+            </thead>
+            <tbody class="divTableBody">
+                <tr class="divTableRow">
+                    <td class="divTableCell">01/15/2026</td>
+                    <td class="divTableCell">
+                        <a href="#" onclick="DownloadStatement('9001_SA_222222_2026-01_statement.pdf','January 2026 Statement');">
+                            January 2026 Statement
+                        </a>
+                    </td>
+                    <td class="divTableCell">$100.00</td>
+                </tr>
+                <tr class="divTableRow">
+                    <td class="divTableCell">02/15/2026</td>
+                    <td class="divTableCell">
+                        <a href="#" onclick="DownloadStatement('9001_SA_222222_2026-02_statement.pdf','O&#39;Sample Q1 Statement');">
+                            O'Sample Q1 Statement
+                        </a>
+                    </td>
+                    <td class="divTableCell">$100.00</td>
+                </tr>
+                <tr class="divTableRow">
+                    <td class="divTableCell">03/15/2026</td>
+                    <td class="divTableCell">March 2026 Statement (archived)</td>
+                    <td class="divTableCell">$100.00</td>
+                </tr>
+                <tr class="divTableRow">
+                    <td class="divTableCell">04/15/2026</td>
+                    <td class="divTableCell">
+                        <a href="#" onclick="DownloadStatement('9001_SA_222222_2026-04_statement.pdf','April 2026 Statement (revised)');">
+                            April 2026 Statement (revised)
+                        </a>
+                    </td>
+                    <td class="divTableCell">$100.00</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>

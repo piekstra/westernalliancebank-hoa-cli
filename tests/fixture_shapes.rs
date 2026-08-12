@@ -157,6 +157,46 @@ fn profile_parses_from_the_real_page() {
 }
 
 #[test]
+fn statements_parse_from_a_populated_history_page() {
+    let list = parse::statements(&text("statement_history_published.html"));
+    assert_eq!(list.len(), 4, "four rows in the fixture");
+
+    // Rows with a `DownloadStatement(...)` handler carry the opaque file name
+    // as `id` and repeat it in `file_name` — that is what `statements
+    // download` posts to the byte-array endpoint.
+    let jan = &list[0];
+    assert_eq!(jan["date"], "2026-01-15");
+    assert_eq!(jan["description"], "January 2026 Statement");
+    assert_eq!(jan["amount"], 100.0);
+    assert_eq!(jan["id"], "9001_SA_222222_2026-01_statement.pdf");
+    assert_eq!(jan["file_name"], jan["id"]);
+
+    // The portal HTML-escapes attribute values, so an apostrophe in the alias
+    // arrives as `&#39;`. Missing the decode would leave a garbled description
+    // and — worse — a garbled file name posted to the endpoint.
+    let feb = &list[1];
+    assert_eq!(feb["description"], "O'Sample Q1 Statement");
+    assert_eq!(feb["id"], "9001_SA_222222_2026-02_statement.pdf");
+
+    // A row without a working download handler is worth listing (the user
+    // asked to see everything published) but must omit `id` so `download`
+    // knows there's nothing to POST for it.
+    let mar = &list[2];
+    assert_eq!(mar["description"], "March 2026 Statement (archived)");
+    assert!(mar.get("id").is_none());
+    assert!(mar.get("file_name").is_none());
+
+    // A *linked* row whose alias is parenthesized. Locating the handler's
+    // closing `)` without tracking quotes truncates the alias mid-word, and
+    // because that alias becomes both the listed description and the saved
+    // PDF's filename, the corruption would be silent in every output.
+    let apr = &list[3];
+    assert_eq!(apr["description"], "April 2026 Statement (revised)");
+    assert_eq!(apr["id"], "9001_SA_222222_2026-04_statement.pdf");
+    assert_eq!(apr["file_name"], apr["id"]);
+}
+
+#[test]
 fn site_user_id_parses_from_the_real_history_page() {
     let id = parse::site_user_id(&text("payment_history_page.html"));
     assert!(id.is_some(), "the history search cannot run without this");
