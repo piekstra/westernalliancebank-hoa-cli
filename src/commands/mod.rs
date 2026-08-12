@@ -31,6 +31,7 @@ pub const HISTORY_SEARCH: &str = "/Payment/PaymentHistorySearch";
 pub const DASHBOARD_CONTENT: &str = "/DashboardContent";
 pub const NOTIFICATIONS_PAGE: &str = "/Notifications/List";
 pub const STATEMENTS_PAGE: &str = "/Properties/StatementHistory";
+pub const STATEMENT_BYTES: &str = "/Statements/GetStatementByteArray";
 pub const PROFILE_PAGE: &str = "/Account/Profile";
 pub const PAYMENT_OPTIONS: &str = "/Homeowner/PreSelectedPaymentOptions";
 

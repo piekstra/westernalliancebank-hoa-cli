@@ -234,6 +234,47 @@ impl Portal {
         out
     }
 
+    /// Fetch a published statement packet's PDF bytes.
+    ///
+    /// The portal's own `DownloadStatement(fileName, fileAlias)` handler POSTs
+    /// `{"FileName": <fileName>}` to `/Statements/GetStatementByteArray` and
+    /// reads back `{"IsSuccessful": true, "File": "<base64>"}` — the response
+    /// is a JSON envelope carrying the PDF as base64 text, not a raw binary
+    /// stream. A `IsSuccessful: false` surfaces the portal's own
+    /// `StatusMessage` rather than a bare "download failed".
+    ///
+    /// A read: it fetches an already-published file and is absent from the
+    /// [`crate::writes`] catalog.
+    pub fn download_statement(&self, file_name: &str) -> Result<Vec<u8>, CliError> {
+        let path = crate::commands::STATEMENT_BYTES;
+        let body = json!({ "FileName": file_name });
+        let payload = self.post_json(path, &body)?;
+        if payload.get("IsSuccessful").and_then(Value::as_bool) != Some(true) {
+            let msg = payload
+                .get("StatusMessage")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    // A missing envelope is the portal drifting; surface it.
+                    format!("no statement returned for {file_name:?}")
+                });
+            return Err(CliError::Upstream(format!(
+                "statement download refused: {msg}"
+            )));
+        }
+        let encoded = payload.get("File").and_then(Value::as_str).ok_or_else(|| {
+            CliError::Upstream(format!(
+                "statement download succeeded but carried no `File` field for {file_name:?}"
+            ))
+        })?;
+        base64_decode(encoded.trim()).ok_or_else(|| {
+            CliError::Upstream(format!(
+                "statement download returned an undecodable body for {file_name:?}"
+            ))
+        })
+    }
+
     /// POST a JSON body to a portal path expecting a JSON reply.
     ///
     /// Read-only by construction: every caller in this crate posts to a query
@@ -365,6 +406,43 @@ fn parse_json(text: &str, path: &str) -> Result<Value, CliError> {
             ))
         }
     })
+}
+
+/// Base64 decoder covering both alphabets, padding optional. Deliberately
+/// local: the only base64 this crate touches is the `File` field on a
+/// statement-download response, and pulling in a dependency for that would be
+/// out of scale with the payload.
+fn base64_decode(input: &str) -> Option<Vec<u8>> {
+    const fn value(b: u8) -> Option<u8> {
+        match b {
+            b'A'..=b'Z' => Some(b - b'A'),
+            b'a'..=b'z' => Some(b - b'a' + 26),
+            b'0'..=b'9' => Some(b - b'0' + 52),
+            b'-' | b'+' => Some(62),
+            b'_' | b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::with_capacity(input.len() * 3 / 4);
+    let mut acc: u32 = 0;
+    let mut bits: u32 = 0;
+    for b in input.bytes() {
+        // Whitespace inside base64 is common when a server pretty-prints; skip
+        // it rather than fail. `=` ends the useful payload.
+        if b == b'=' {
+            break;
+        }
+        if b.is_ascii_whitespace() {
+            continue;
+        }
+        acc = (acc << 6) | value(b)? as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
 }
 
 /// Pull a short human hint out of an error body for error messages.
@@ -502,6 +580,23 @@ mod tests {
     fn non_json_non_html_is_an_upstream_error() {
         let err = parse_json("kaboom", "/x").unwrap_err();
         assert!(matches!(err, CliError::Upstream(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn base64_decodes_padded_and_unpadded_input() {
+        // Standard alphabet, both with and without padding, and with the
+        // whitespace a pretty-printer might insert.
+        assert_eq!(base64_decode("SGVsbG8=").unwrap(), b"Hello");
+        assert_eq!(base64_decode("SGVsbG8").unwrap(), b"Hello");
+        assert_eq!(base64_decode("SGV s bG8=").unwrap(), b"Hello");
+        // URL-safe alphabet.
+        assert_eq!(
+            base64_decode("-_+/").unwrap(),
+            base64_decode("-_-_").unwrap()
+        );
+        // A stray non-alphabet byte fails, so a garbled body doesn't silently
+        // become empty output.
+        assert!(base64_decode("****").is_none());
     }
 
     #[test]

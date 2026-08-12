@@ -269,9 +269,11 @@ fn quoted_after(s: &str, label: &str) -> Option<String> {
 
 /// Published statement packets, from the statement-history page.
 ///
-/// The test account's associations publish none, so this parses the generic
-/// row shape rather than a verified layout; an unrecognized row is skipped
-/// instead of guessed at.
+/// The download-enabling field is the opaque `id` — the `FileName` string the
+/// portal's own `DownloadStatement(fileName, fileAlias)` handler passes to
+/// `POST /Statements/GetStatementByteArray`. Without it a row is a
+/// description-only entry that `statements download` cannot fetch, so the CLI
+/// still lists it (the user asked to see everything published) but omits `id`.
 pub fn statements(page: &str) -> Vec<Value> {
     rows(page)
         .iter()
@@ -282,14 +284,101 @@ pub fn statements(page: &str) -> Vec<Value> {
             }
             let date = from_portal(&cells[0])?;
             let mut out = Map::new();
+            let (file_name, file_alias) = download_call(row);
+            if let Some(id) = &file_name {
+                out.insert("id".into(), json!(id));
+            }
             out.insert("date".into(), json!(date));
-            out.insert("description".into(), json!(cells[1]));
+            // Prefer the portal's `fileAlias` (the display label its own UI
+            // uses) over the raw cell text, so the description reads as the
+            // portal shows it — cell text may include icons or whitespace.
+            let description = file_alias
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| cells[1].trim())
+                .to_string();
+            out.insert("description".into(), json!(description));
             if let Some(amount) = cells.get(2).and_then(|c| money(c)) {
                 out.insert("amount".into(), json!(amount));
+            }
+            if let Some(name) = file_name {
+                out.insert("file_name".into(), json!(name));
             }
             Some(Value::Object(out))
         })
         .collect()
+}
+
+/// Extract `(fileName, fileAlias)` from a row's
+/// `DownloadStatement('fileName','fileAlias')` handler, wherever the portal
+/// tucked it — on the row's own attribute, on a `<button>`, or on an `<a>`.
+fn download_call(row: &str) -> (Option<String>, Option<String>) {
+    let Some(start) = row.find("DownloadStatement(") else {
+        return (None, None);
+    };
+    let rest = &row[start + "DownloadStatement(".len()..];
+    let end = rest.find(')').unwrap_or(rest.len());
+    let inside = &rest[..end];
+    let mut args = split_call_args(inside);
+    let file_name = args.next().map(unescape_html);
+    let file_alias = args.next().map(unescape_html);
+    (file_name, file_alias)
+}
+
+/// Split a JS argument list on commas outside of quoted strings, returning the
+/// unquoted string arguments.
+fn split_call_args(inside: &str) -> impl Iterator<Item = String> + '_ {
+    let mut out = Vec::new();
+    let bytes = inside.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Skip whitespace and separator commas.
+        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b',') {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+        let quote = bytes[i];
+        if quote != b'\'' && quote != b'"' {
+            // A non-string argument — the JS never uses them here, but be
+            // defensive: consume until the next comma and skip.
+            while i < bytes.len() && bytes[i] != b',' {
+                i += 1;
+            }
+            continue;
+        }
+        i += 1;
+        let start = i;
+        while i < bytes.len() && bytes[i] != quote {
+            // JS escapes: consume the escaped byte with the backslash.
+            if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        let raw = &inside[start..i.min(bytes.len())];
+        out.push(raw.to_string());
+        if i < bytes.len() {
+            i += 1;
+        }
+    }
+    out.into_iter()
+}
+
+/// Decode the handful of HTML entities the portal actually emits in attribute
+/// values. Anything richer belongs in a real entity-decoder.
+fn unescape_html(s: String) -> String {
+    if !s.contains('&') {
+        return s;
+    }
+    s.replace("&amp;", "&")
+        .replace("&#39;", "'")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
 }
 
 /// The account profile. The portal masks the phone and email in the rendered
@@ -567,6 +656,69 @@ mod tests {
         let page = r#"<tbody class="divTableBody">
             <tr class="divTableRow">NO STATEMENT DATA AVAILABLE</tr></tbody>"#;
         assert!(statements(page).is_empty());
+    }
+
+    #[test]
+    fn statements_carry_the_download_file_name() {
+        // The row shape mirrors the portal's own `DownloadStatement(fileName,
+        // fileAlias)` handler — that call is what `statements download` needs.
+        let page = r##"<table class="divTable default">
+          <tbody class="divTableBody">
+            <tr class="divTableRow">
+              <td class="divTableCell">01/15/2026</td>
+              <td class="divTableCell">
+                <a href="#" onclick="DownloadStatement('9001_SA_222222_2026-01.pdf','January 2026 Statement');">
+                  January 2026 Statement
+                </a>
+              </td>
+              <td class="divTableCell">$100.00</td>
+            </tr>
+          </tbody>
+        </table>"##;
+        let list = statements(page);
+        assert_eq!(list.len(), 1);
+        let s = &list[0];
+        assert_eq!(s["id"], "9001_SA_222222_2026-01.pdf");
+        assert_eq!(s["file_name"], "9001_SA_222222_2026-01.pdf");
+        assert_eq!(s["date"], "2026-01-15");
+        // The alias, not the raw cell text — cell text carries the icon and
+        // trailing whitespace the portal renders around the link.
+        assert_eq!(s["description"], "January 2026 Statement");
+        assert_eq!(s["amount"], 100.0);
+    }
+
+    #[test]
+    fn a_statement_row_without_a_download_handler_still_lists() {
+        // A row the portal shows without a working link is worth listing (the
+        // user asked to see everything published) but must omit `id`, since
+        // `statements download` has nothing to send.
+        let page = r#"<table><tbody>
+          <tr><td>02/15/2026</td><td>February 2026 Statement</td><td>$100.00</td></tr>
+        </tbody></table>"#;
+        let list = statements(page);
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["date"], "2026-02-15");
+        assert!(list[0].get("id").is_none());
+        assert!(list[0].get("file_name").is_none());
+    }
+
+    #[test]
+    fn download_call_survives_the_portals_quoting_quirks() {
+        // The portal HTML-escapes attribute values, so an apostrophe in a
+        // filename arrives as `&#39;`; a decoder that missed that would hand
+        // the endpoint a garbled name.
+        let (file, alias) = download_call(
+            r##"<a onclick="DownloadStatement('O&#39;Sample.pdf','O&#39;Sample Statement');">x</a>"##,
+        );
+        assert_eq!(file.as_deref(), Some("O'Sample.pdf"));
+        assert_eq!(alias.as_deref(), Some("O'Sample Statement"));
+
+        // Double-quoted arguments must also decode.
+        let (file, _) = download_call(r##"<a onclick='DownloadStatement("f.pdf","Alias")'>x</a>"##);
+        assert_eq!(file.as_deref(), Some("f.pdf"));
+
+        // A row without the handler at all returns nothing rather than panics.
+        assert_eq!(download_call("<tr><td>plain</td></tr>"), (None, None));
     }
 
     #[test]

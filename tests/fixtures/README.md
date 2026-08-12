@@ -16,6 +16,7 @@ captured from `pay.westernalliancebank.com` on 2026-08-06:
 | `payment_options.json` | `POST /Homeowner/PreSelectedPaymentOptions` | `parse::balance` |
 | `notifications.html` | `GET /Notifications/List` | `parse::notifications` |
 | `profile.html` | `GET /Account/Profile` | `parse::profile` |
+| `statement_history_published.html` | `GET /Properties/StatementHistory` | `parse::statements` (populated case; the test account has none, so the row shape is reconstructed from the portal's `DownloadStatement(fileName, fileAlias)` handler) |
 
 ## The scrubbing policy
 

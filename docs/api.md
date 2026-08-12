@@ -1,10 +1,10 @@
 # Western Alliance Bank HOA payment portal — observed API
 
 Reverse-engineered from the portal's own traffic at
-`https://pay.westernalliancebank.com` on **2026-08-06**. Unofficial and
-undocumented: Western Alliance Bank publishes no API for this portal, and any
-of this can change without notice. `wabhoa api <path> --raw` is the escape
-hatch for checking.
+`https://pay.westernalliancebank.com` on **2026-08-06** (statement-download
+endpoint added **2026-08-11**). Unofficial and undocumented: Western Alliance
+Bank publishes no API for this portal, and any of this can change without
+notice. `wabhoa api <path> --raw` is the escape hatch for checking.
 
 The application is **ServiceStack on ASP.NET**, fronted by Cloudflare, and is
 white-labeled per management company (the same deployment serves Alliance
@@ -88,6 +88,7 @@ out of the markup — see `src/parse.rs`.
 | `/DashboardContent` | GET | HTML | Scheduled (recurring) payments; recent payments. |
 | `/Notifications/List` | GET | HTML | Notification rows + bodies in a `messagesArray` literal. |
 | `/Properties/StatementHistory` | GET | HTML | Statement packets, when the association publishes any. |
+| `/Statements/GetStatementByteArray` | POST | **JSON** | One statement's PDF bytes, as base64. Body: `{"FileName": "<file>"}`. |
 | `/Account/Profile` | GET | HTML | Name, plus **masked** phone and email. |
 | `/PaymentMethods/Manage` | GET | HTML | Payment methods again, but without their IDs — `MakePayment` is the better source. |
 
@@ -163,6 +164,33 @@ cell into `<a class="__cf_email__" data-cfemail="…">[email protected]</a>`;
 requests carrying `X-Requested-With: XMLHttpRequest` appear to get the plain
 address instead. Both forms parse.
 
+**Notification bodies are prose, not attachments.** Every message observed on
+the test account is an HTML `<p>`-and-`<table>` payment notice — receipts,
+upcoming-payment reminders — with no PDF file, no `<img data:…>`, no `<a
+href="…pdf">`. The only URLs embedded are one-time-use `/Account/ExpressLogin`
+and `/payment/CancelPayment` tokens; those are working *credentials* rather
+than attachments, so `notifications get` deliberately does not surface them
+as a downloadable side-channel. Statement PDFs are on the statement-history
+surface (below), not attached to a notification.
+
+**`POST /Statements/GetStatementByteArray`** — the portal's own front end calls
+this from `DownloadStatement(fileName, fileAlias)` on `StatementHistory.cshtml`.
+
+```json
+{"FileName": "<opaque server key>"}
+```
+
+Answers a JSON envelope with the PDF as base64 text — not a raw binary stream:
+
+```json
+{"IsSuccessful": true, "File": "<base64 bytes>"}
+```
+
+On failure, `IsSuccessful` is `false` and `StatusMessage` carries a human hint.
+The `FileName` comes off the statement-history table row's
+`onclick="DownloadStatement('…','…')"`; there is no separate list endpoint.
+This is the read `wabhoa statements download` uses.
+
 ### Date dialects
 
 Three, all normalized to ISO `YYYY-MM-DD` at the CLI boundary:
@@ -210,9 +238,9 @@ not in the write catalog and `wabhoa api` will call them:
 `/cards/getEstimatedCardFeesAndTotalAmount` · `/GetManagementCompanyById` ·
 `/Properties/Search` · `/Properties/MemberVerify` ·
 `/payment/CheckDuplicatePayment` · `/CMC/CMCRevenueShareText` ·
-`/GetAvailableProductServices` · `/Statements/GetStatementByteArray`
+`/GetAvailableProductServices`
 
 `/payment/CheckDuplicatePayment` is a read despite living in the payment flow —
-it asks whether a payment *would* be a duplicate. `GetStatementByteArray`
-returns statement PDF bytes and is the natural home for a future
-`statements download`.
+it asks whether a payment *would* be a duplicate. `GetStatementByteArray` is
+now implemented by `wabhoa statements download` and is documented above with
+the rest of the reads.
