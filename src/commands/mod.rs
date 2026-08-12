@@ -2,13 +2,13 @@
 //! mode and a shaped table/kv view in text mode.
 
 pub mod api;
+pub mod documents;
 pub mod methods;
 pub mod notifications;
 pub mod payments;
 pub mod profile;
 pub mod properties;
 pub mod scheduled;
-pub mod statements;
 pub mod summary;
 pub mod writes;
 

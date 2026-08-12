@@ -285,25 +285,28 @@ pub fn statements(page: &str) -> Vec<Value> {
             let date = from_portal(&cells[0])?;
             let mut out = Map::new();
             let (file_name, file_alias) = download_call(row);
-            if let Some(id) = &file_name {
-                out.insert("id".into(), json!(id));
-            }
+            // documents/v1: `id` is the download key — the portal's `FileName`.
+            // A row published without a working download link has none; list it
+            // with an empty id (so `documents list` still shows everything the
+            // portal published) but it cannot be fetched.
+            out.insert("id".into(), json!(file_name.unwrap_or_default()));
             out.insert("date".into(), json!(date));
-            // Prefer the portal's `fileAlias` (the display label its own UI
-            // uses) over the raw cell text, so the description reads as the
-            // portal shows it — cell text may include icons or whitespace.
-            let description = file_alias
+            // documents/v1 `name` (the human title). Prefer the portal's
+            // `fileAlias` (the display label its own UI uses) over the raw cell
+            // text, so it reads as the portal shows it — cell text may include
+            // icons or whitespace.
+            let name = file_alias
                 .as_deref()
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| cells[1].trim())
                 .to_string();
-            out.insert("description".into(), json!(description));
+            out.insert("name".into(), json!(name));
+            out.insert("category".into(), json!("statement"));
+            // `amount` is a provider extra: documents/v1 carries no financial
+            // fields (the file, not its balance, is the document).
             if let Some(amount) = cells.get(2).and_then(|c| money(c)) {
                 out.insert("amount".into(), json!(amount));
-            }
-            if let Some(name) = file_name {
-                out.insert("file_name".into(), json!(name));
             }
             Some(Value::Object(out))
         })
@@ -717,28 +720,30 @@ mod tests {
         let list = statements(page);
         assert_eq!(list.len(), 1);
         let s = &list[0];
+        // documents/v1 shape: id (the portal FileName / download key), date,
+        // name (the alias, not the raw cell text — cell text carries the icon
+        // and trailing whitespace), category, and amount as a provider extra.
         assert_eq!(s["id"], "9001_SA_222222_2026-01.pdf");
-        assert_eq!(s["file_name"], "9001_SA_222222_2026-01.pdf");
         assert_eq!(s["date"], "2026-01-15");
-        // The alias, not the raw cell text — cell text carries the icon and
-        // trailing whitespace the portal renders around the link.
-        assert_eq!(s["description"], "January 2026 Statement");
+        assert_eq!(s["name"], "January 2026 Statement");
+        assert_eq!(s["category"], "statement");
         assert_eq!(s["amount"], 100.0);
     }
 
     #[test]
     fn a_statement_row_without_a_download_handler_still_lists() {
         // A row the portal shows without a working link is worth listing (the
-        // user asked to see everything published) but must omit `id`, since
-        // `statements download` has nothing to send.
+        // user asked to see everything published), but documents/v1 needs an
+        // `id` on every item, so it lists with an *empty* id — present but not
+        // fetchable.
         let page = r#"<table><tbody>
           <tr><td>02/15/2026</td><td>February 2026 Statement</td><td>$100.00</td></tr>
         </tbody></table>"#;
         let list = statements(page);
         assert_eq!(list.len(), 1);
         assert_eq!(list[0]["date"], "2026-02-15");
-        assert!(list[0].get("id").is_none());
-        assert!(list[0].get("file_name").is_none());
+        assert_eq!(list[0]["id"], "");
+        assert_eq!(list[0]["name"], "February 2026 Statement");
     }
 
     #[test]

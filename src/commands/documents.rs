@@ -1,4 +1,5 @@
-//! `wabhoa statements` — association statement packets, when published.
+//! `wabhoa documents` (alias `statements`) — association statement packets
+//! published as the documents/v1 profile, when the association publishes any.
 //!
 //! Many associations publish none, in which case the portal renders "NO
 //! STATEMENT DATA AVAILABLE" and `list` returns empty. When statements are
@@ -23,18 +24,18 @@ use crate::parse;
 
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
-    /// List published statements.
+    /// List published documents.
     #[command(visible_alias = "ls")]
     List,
     /// Download a statement — one by id, or every one with `--all`
-    /// (statement-download/v1, statement-download-batch/v1).
+    /// (document-download/v1, document-download-batch/v1).
     #[command(visible_alias = "get")]
     Download(DownloadArgs),
 }
 
 #[derive(Args, Debug)]
 pub struct DownloadArgs {
-    /// The statement `id` from `statements list`. Omit and pass `--all` for
+    /// The statement `id` from `documents list`. Omit and pass `--all` for
     /// every published statement.
     pub id: Option<String>,
     /// Download every published statement. Requires `-o DIR` (or the current
@@ -77,7 +78,7 @@ fn download_blocked(
         );
     }
     if !all && id.is_none() {
-        return Some("give a statement id (see `wabhoa statements list`) or --all".into());
+        return Some("give a document id (see `wabhoa documents list`) or --all".into());
     }
     None
 }
@@ -87,17 +88,12 @@ fn list(ctx: &Ctx) -> Result<(), CliError> {
     if statements.is_empty() {
         note_empty(ctx, "statements");
     }
-    emit(
-        ctx,
-        "statement-list",
-        json!({ "statements": statements }),
-        |v| {
-            output::table(&table_view(
-                &items(v, "statements"),
-                &["date", "description", "amount", "id"],
-            ));
-        },
-    );
+    emit(ctx, "document-list", json!({ "items": statements }), |v| {
+        output::table(&table_view(
+            &items(v, "items"),
+            &["date", "name", "amount", "id"],
+        ));
+    });
     Ok(())
 }
 
@@ -116,7 +112,7 @@ fn download(ctx: &Ctx, args: &DownloadArgs) -> Result<(), CliError> {
         // `download_blocked` already rejected this; kept total rather than
         // unreachable! so a future flag can't turn a logic slip into a panic.
         (false, None) => Err(CliError::Usage(
-            "give a statement id (see `wabhoa statements list`) or --all".into(),
+            "give a document id (see `wabhoa documents list`) or --all".into(),
         )),
     }
 }
@@ -142,7 +138,7 @@ fn download_one(ctx: &Ctx, id: &str, args: &DownloadArgs) -> Result<(), CliError
 
     emit(
         ctx,
-        "statement-download",
+        "document-download",
         saved_dto(&statement, id, &path, bytes.len()),
         |v| println!("{}", saved_line(v)),
     );
@@ -223,7 +219,7 @@ fn download_all(ctx: &Ctx, args: &DownloadArgs) -> Result<(), CliError> {
         "dir": where_to,
         "items": written,
     });
-    emit(ctx, "statement-download-batch", payload, |v| {
+    emit(ctx, "document-download-batch", payload, |v| {
         for it in v
             .get("items")
             .and_then(Value::as_array)
@@ -253,7 +249,7 @@ fn fetch(ctx: &Ctx, id: &str) -> Result<(Value, Vec<u8>), CliError> {
             .find(|s| s.get("id").and_then(Value::as_str) == Some(id))
             .ok_or_else(|| {
                 CliError::NotFound(format!(
-                    "no statement with id {id} — run `wabhoa statements list`"
+                    "no statement with id {id} — run `wabhoa documents list`"
                 ))
             })?;
         let bytes = c.download_statement(id)?;
@@ -275,7 +271,7 @@ fn file_name_of(statement: &Value, id: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default();
     let description = statement
-        .get("description")
+        .get("name")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .trim();
@@ -371,23 +367,33 @@ fn sanitize(raw: &str) -> String {
 }
 
 fn saved_dto(statement: &Value, id: &str, path: &Path, bytes: usize) -> Value {
+    // document-download/v1 field order (schema is added by `emit`): id, name,
+    // category, date, file (the written leaf), path, bytes — then `amount` as a
+    // provider extra.
+    let file = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| id.to_string());
     json!({
         "id": id,
+        "name": statement.get("name").cloned().unwrap_or(Value::Null),
+        "category": statement
+            .get("category")
+            .cloned()
+            .unwrap_or(Value::String("statement".into())),
         "date": statement.get("date").cloned().unwrap_or(Value::Null),
-        "description": statement.get("description").cloned().unwrap_or(Value::Null),
-        "amount": statement.get("amount").cloned().unwrap_or(Value::Null),
-        "file_name": statement.get("file_name").cloned().unwrap_or(Value::String(id.to_string())),
+        "file": file,
         "path": path.display().to_string(),
         "bytes": bytes,
+        "amount": statement.get("amount").cloned().unwrap_or(Value::Null),
     })
 }
 
 fn saved_line(v: &Value) -> String {
     format!(
         "Saved {} → {} ({} bytes)",
-        v.get("description")
-            .and_then(Value::as_str)
-            .unwrap_or("statement"),
+        v.get("name").and_then(Value::as_str).unwrap_or("statement"),
         v.get("path").and_then(Value::as_str).unwrap_or("?"),
         v.get("bytes").and_then(Value::as_u64).unwrap_or(0),
     )
@@ -452,7 +458,7 @@ mod tests {
     #[test]
     fn download_blocked_requires_an_id_or_all() {
         let why = download_blocked(false, false, None, None).expect("blocked");
-        assert!(why.contains("statement id"), "{why}");
+        assert!(why.contains("document id"), "{why}");
         assert!(why.contains("--all"), "{why}");
     }
 
@@ -482,7 +488,7 @@ mod tests {
     fn file_name_prefers_date_and_description_over_opaque_id() {
         let s = json!({
             "date": "2026-01-15",
-            "description": "January 2026 Statement",
+            "name": "January 2026 Statement",
         });
         assert_eq!(
             file_name_of(&s, "9001_SA_222222_2026-01.pdf"),
@@ -548,14 +554,14 @@ mod tests {
     fn colliding_derived_names_both_reach_disk() {
         let statements = [
             (
-                json!({ "date": "2026-01-15", "description": "January 2026 Statement" }),
+                json!({ "date": "2026-01-15", "name": "January 2026 Statement" }),
                 "9001_SA_222222_2026-01_a.pdf",
                 b"AAAA".to_vec(),
             ),
             (
                 // Same date, description that sanitizes identically — the
                 // exact collision the reviewer flagged.
-                json!({ "date": "2026-01-15", "description": "January  2026  Statement" }),
+                json!({ "date": "2026-01-15", "name": "January  2026  Statement" }),
                 "9001_SA_222222_2026-01_b.pdf",
                 b"BBBBBB".to_vec(),
             ),
