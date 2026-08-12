@@ -272,7 +272,7 @@ fn quoted_after(s: &str, label: &str) -> Option<String> {
 /// The download-enabling field is the opaque `id` — the `FileName` string the
 /// portal's own `DownloadStatement(fileName, fileAlias)` handler passes to
 /// `POST /Statements/GetStatementByteArray`. Without it a row is a
-/// description-only entry that `statements download` cannot fetch, so the CLI
+/// description-only entry that `documents download` cannot fetch, so the CLI
 /// still lists it (the user asked to see everything published) but omits `id`.
 pub fn statements(page: &str) -> Vec<Value> {
     rows(page)
@@ -337,7 +337,7 @@ fn download_call(row: &str) -> (Option<String>, Option<String>) {
 /// `DownloadStatement('9001.pdf','March 2026 Statement (archived)')` would stop
 /// at the `)` in `(archived)` and silently truncate the alias to
 /// `March 2026 Statement (archived`. That doesn't error — it corrupts the
-/// description, and with it the filename `statements download` saves the PDF
+/// description, and with it the filename `documents download` saves the PDF
 /// under. Scan with the same quote awareness the argument splitter uses.
 ///
 /// Quotes and `)` are ASCII, so byte offsets always land on a character
@@ -703,7 +703,7 @@ mod tests {
     #[test]
     fn statements_carry_the_download_file_name() {
         // The row shape mirrors the portal's own `DownloadStatement(fileName,
-        // fileAlias)` handler — that call is what `statements download` needs.
+        // fileAlias)` handler — that call is what `documents download` needs.
         let page = r##"<table class="divTable default">
           <tbody class="divTableBody">
             <tr class="divTableRow">
