@@ -249,25 +249,13 @@ impl Portal {
         let path = crate::commands::STATEMENT_BYTES;
         let body = json!({ "FileName": file_name });
         let payload = self.post_json(path, &body)?;
-        if payload.get("IsSuccessful").and_then(Value::as_bool) != Some(true) {
-            let msg = payload
-                .get("StatusMessage")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| {
-                    // A missing envelope is the portal drifting; surface it.
-                    format!("no statement returned for {file_name:?}")
-                });
-            return Err(CliError::Upstream(format!(
-                "statement download refused: {msg}"
-            )));
+        if let Some(err) = statement_error(&payload, file_name) {
+            return Err(CliError::Upstream(err));
         }
-        let encoded = payload.get("File").and_then(Value::as_str).ok_or_else(|| {
-            CliError::Upstream(format!(
-                "statement download succeeded but carried no `File` field for {file_name:?}"
-            ))
-        })?;
+        let encoded = payload
+            .get("File")
+            .and_then(Value::as_str)
+            .expect("statement_error rejected a missing File");
         base64_decode(encoded.trim()).ok_or_else(|| {
             CliError::Upstream(format!(
                 "statement download returned an undecodable body for {file_name:?}"
@@ -406,6 +394,41 @@ fn parse_json(text: &str, path: &str) -> Result<Value, CliError> {
             ))
         }
     })
+}
+
+/// Interpret a `/Statements/GetStatementByteArray` response envelope, returning
+/// the human message when the payload is *not* a usable statement.
+///
+/// Pure so every response shape observed — the portal's `IsSuccessful: false`
+/// with and without a `StatusMessage`, a success envelope missing the `File`
+/// field entirely, and the ordinary success case — is covered by unit cases
+/// rather than a live HTTP call. Mirrors [`expired_session`] and [`body_hint`].
+///
+/// A `None` return means the envelope is a real success: `IsSuccessful: true`
+/// **and** `File` is a string. Callers may then decode `File` without a
+/// second existence check.
+fn statement_error(payload: &Value, file_name: &str) -> Option<String> {
+    let ok = payload.get("IsSuccessful").and_then(Value::as_bool) == Some(true);
+    if !ok {
+        // The portal's own `StatusMessage` is more useful than a bare
+        // "download failed" — surface it when it's there.
+        let msg = payload
+            .get("StatusMessage")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("no statement returned for {file_name:?}"));
+        return Some(format!("statement download refused: {msg}"));
+    }
+    // `IsSuccessful: true` without a `File` field is the portal drifting.
+    // Treat it as an upstream error rather than an empty PDF.
+    if payload.get("File").and_then(Value::as_str).is_none() {
+        return Some(format!(
+            "statement download succeeded but carried no `File` field for {file_name:?}"
+        ));
+    }
+    None
 }
 
 /// Base64 decoder covering both alphabets, padding optional. Deliberately
@@ -580,6 +603,59 @@ mod tests {
     fn non_json_non_html_is_an_upstream_error() {
         let err = parse_json("kaboom", "/x").unwrap_err();
         assert!(matches!(err, CliError::Upstream(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn statement_error_surfaces_the_portals_own_message_when_present() {
+        // The observed shape on the live portal — the endpoint reports the
+        // failure through the envelope, not an HTTP error, so the message
+        // must reach the user rather than be replaced with a generic string.
+        let payload = json!({
+            "IsSuccessful": false,
+            "StatusCode": -1100,
+            "StatusMessage": "There was an error trying to perform the requested action.",
+        });
+        let err = statement_error(&payload, "9001.pdf").expect("error expected");
+        assert!(err.starts_with("statement download refused:"), "{err}");
+        assert!(err.contains("There was an error"), "{err}");
+    }
+
+    #[test]
+    fn statement_error_falls_back_when_the_portal_omits_a_status_message() {
+        // A refusal with no message (whitespace-only is treated the same) must
+        // still name the file being asked for, so the diagnostic is actionable.
+        for payload in [
+            json!({ "IsSuccessful": false }),
+            json!({ "IsSuccessful": false, "StatusMessage": "" }),
+            json!({ "IsSuccessful": false, "StatusMessage": "   " }),
+        ] {
+            let err = statement_error(&payload, "9001.pdf").expect("error expected");
+            assert!(err.contains("no statement returned for"), "{err}");
+            assert!(err.contains("9001.pdf"), "{err}");
+        }
+    }
+
+    #[test]
+    fn statement_error_rejects_a_success_envelope_missing_the_file_field() {
+        // A `true`-but-no-`File` envelope would previously slip through and
+        // then blow up in the decoder — treat it as an upstream drift here,
+        // with a message that points at the missing field.
+        let payload = json!({ "IsSuccessful": true });
+        let err = statement_error(&payload, "9001.pdf").expect("error expected");
+        assert!(err.contains("no `File` field"), "{err}");
+        assert!(err.contains("9001.pdf"), "{err}");
+
+        // A non-string `File` (e.g. `null`) is treated the same — the decoder
+        // needs a string in hand, not any JSON value.
+        let payload = json!({ "IsSuccessful": true, "File": null });
+        assert!(statement_error(&payload, "9001.pdf").is_some());
+    }
+
+    #[test]
+    fn statement_error_passes_a_real_success_envelope_through() {
+        // The only shape a caller may safely decode from.
+        let payload = json!({ "IsSuccessful": true, "File": "SGVsbG8=" });
+        assert!(statement_error(&payload, "9001.pdf").is_none());
     }
 
     #[test]

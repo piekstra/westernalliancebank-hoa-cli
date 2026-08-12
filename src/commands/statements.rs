@@ -152,10 +152,19 @@ fn download_all(ctx: &Ctx, args: &DownloadArgs) -> Result<(), CliError> {
             .map_err(|e| CliError::Upstream(format!("creating {}: {e}", dir.display())))?;
     }
 
+    // `file_name_of` derives the on-disk name from date + description, which is
+    // friendlier than the opaque server key but is not guaranteed unique — two
+    // statements from the same day with descriptions that sanitize to the same
+    // string would silently overwrite. Track what has already been written so
+    // a collision falls through to a `_2`, `_3`, … suffix (and, if even that
+    // collides, to the sanitized `id`, which the portal *does* guarantee is
+    // unique per statement).
+    let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut written = Vec::with_capacity(downloaded.len());
     let mut bytes_total: u64 = 0;
     for (statement, id, bytes) in &downloaded {
-        let name = file_name_of(statement, id);
+        let name = disambiguate(&file_name_of(statement, id), id, &used);
+        used.insert(name.clone());
         let path = if dir.as_os_str().is_empty() {
             PathBuf::from(&name)
         } else {
@@ -246,6 +255,42 @@ fn file_name_of(statement: &Value, id: &str) -> String {
         (d, false) => format!("{d} {}", sanitize(description)),
     };
     format!("{base}.{}", ext.unwrap_or("pdf"))
+}
+
+/// Pick a filename that hasn't been used yet in this batch. Tries the
+/// human-friendly `preferred` name first, then `preferred` with `_2`, `_3`, …
+/// suffixed, and finally falls back to the opaque `id` (portal-guaranteed
+/// unique) if even that ties. Never touches the filesystem — collision
+/// detection is scoped to `used`, so a rerun into the same directory happily
+/// overwrites its own previous output.
+fn disambiguate<S: std::hash::BuildHasher>(
+    preferred: &str,
+    id: &str,
+    used: &std::collections::HashSet<String, S>,
+) -> String {
+    if !used.contains(preferred) {
+        return preferred.to_string();
+    }
+    let (stem, ext) = split_extension(preferred);
+    let ext = ext.unwrap_or("pdf");
+    // Cap the search well below any sane batch size so a pathological input
+    // still terminates. In practice the second attempt (`_2`) is enough.
+    for n in 2..=1024 {
+        let candidate = format!("{stem}_{n}.{ext}");
+        if !used.contains(&candidate) {
+            return candidate;
+        }
+    }
+    // Final fallback: the opaque id, which the portal guarantees is unique
+    // per statement. Its extension is trusted in the same way `file_name_of`
+    // trusts it.
+    let (id_stem, id_ext) = split_extension(id);
+    let unique = format!("{}.{}", sanitize(id_stem), id_ext.unwrap_or("pdf"));
+    if !used.contains(&unique) {
+        return unique;
+    }
+    // Nothing left to try; return the id verbatim rather than lose the file.
+    id.to_string()
 }
 
 /// Split `"abc.pdf"` into `("abc", Some("pdf"))`. Requires the suffix to look
@@ -386,6 +431,100 @@ mod tests {
         assert_eq!(sanitize("/////"), "statement");
         // Parens and dashes survive — they're legal path characters and useful.
         assert_eq!(sanitize("2026 Q1 (draft)"), "2026_Q1_(draft)");
+    }
+
+    #[test]
+    fn disambiguate_returns_the_preferred_name_when_unused() {
+        let used = std::collections::HashSet::<String>::new();
+        assert_eq!(
+            disambiguate("2026-01-15 January.pdf", "abc.pdf", &used),
+            "2026-01-15 January.pdf"
+        );
+    }
+
+    #[test]
+    fn disambiguate_appends_a_counter_before_overwriting() {
+        // The concrete bug: two statements from the same day whose
+        // descriptions sanitize to the same string would silently overwrite,
+        // and the batch summary would still report both as written. The
+        // second (and any further) collision gets `_2`, `_3`, … so both PDFs
+        // actually reach disk.
+        let mut used = std::collections::HashSet::new();
+        let a = disambiguate("2026-01-15 January.pdf", "a.pdf", &used);
+        used.insert(a.clone());
+        let b = disambiguate("2026-01-15 January.pdf", "b.pdf", &used);
+        used.insert(b.clone());
+        let c = disambiguate("2026-01-15 January.pdf", "c.pdf", &used);
+
+        assert_eq!(a, "2026-01-15 January.pdf");
+        assert_eq!(b, "2026-01-15 January_2.pdf");
+        assert_eq!(c, "2026-01-15 January_3.pdf");
+        // Each output is a distinct path, so nothing overwrites anything.
+        let all: std::collections::HashSet<_> = [a, b, c].into_iter().collect();
+        assert_eq!(all.len(), 3);
+    }
+
+    /// Wire the disambiguator through actual file writes to prove the batch
+    /// path preserves both PDFs when two statements share a derived name.
+    /// This mirrors the inner loop of `download_all`; the CLI path itself is
+    /// covered by the surface tests, but the write loop was where the bug hid.
+    #[test]
+    fn colliding_derived_names_both_reach_disk() {
+        let statements = [
+            (
+                json!({ "date": "2026-01-15", "description": "January 2026 Statement" }),
+                "9001_SA_222222_2026-01_a.pdf",
+                b"AAAA".to_vec(),
+            ),
+            (
+                // Same date, description that sanitizes identically — the
+                // exact collision the reviewer flagged.
+                json!({ "date": "2026-01-15", "description": "January  2026  Statement" }),
+                "9001_SA_222222_2026-01_b.pdf",
+                b"BBBBBB".to_vec(),
+            ),
+        ];
+
+        let dir =
+            std::env::temp_dir().join(format!("wabhoa-collision-test-{}", std::process::id()));
+        // The temp dir may linger from a previous crashed run; start clean so
+        // "already exists" doesn't mask a real collision.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+
+        let mut used = std::collections::HashSet::new();
+        let mut paths = Vec::new();
+        for (statement, id, bytes) in &statements {
+            let name = disambiguate(&file_name_of(statement, id), id, &used);
+            used.insert(name.clone());
+            let path = dir.join(&name);
+            std::fs::write(&path, bytes).expect("write pdf");
+            paths.push((path, bytes.len()));
+        }
+
+        assert_ne!(
+            paths[0].0, paths[1].0,
+            "the two writes must land on distinct paths"
+        );
+        for (path, len) in &paths {
+            let on_disk = std::fs::read(path).expect("read back");
+            assert_eq!(on_disk.len(), *len, "wrong bytes at {}", path.display());
+        }
+        // Best-effort cleanup so a rerun starts from a clean slate.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn disambiguate_falls_back_to_the_unique_id_when_all_counters_are_taken() {
+        // Pathological but well-defined: pre-fill the numbered slots so the
+        // fallback fires. The opaque id is portal-guaranteed unique.
+        let mut used = std::collections::HashSet::new();
+        used.insert("preferred.pdf".to_string());
+        for n in 2..=1024 {
+            used.insert(format!("preferred_{n}.pdf"));
+        }
+        let out = disambiguate("preferred.pdf", "9001_SA_222222.pdf", &used);
+        assert_eq!(out, "9001_SA_222222.pdf");
     }
 
     #[test]
