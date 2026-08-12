@@ -243,6 +243,11 @@ impl Portal {
     /// stream. A `IsSuccessful: false` surfaces the portal's own
     /// `StatusMessage` rather than a bare "download failed".
     ///
+    /// Nothing about the HTTP status is trusted. The response is accepted only
+    /// after two positive checks: the envelope says `IsSuccessful: true` with a
+    /// `File` string ([`statement_error`]), and the decoded bytes carry a
+    /// `%PDF-` header ([`pdf_error`]). See those for why each is load-bearing.
+    ///
     /// A read: it fetches an already-published file and is absent from the
     /// [`crate::writes`] catalog.
     pub fn download_statement(&self, file_name: &str) -> Result<Vec<u8>, CliError> {
@@ -256,11 +261,17 @@ impl Portal {
             .get("File")
             .and_then(Value::as_str)
             .expect("statement_error rejected a missing File");
-        base64_decode(encoded.trim()).ok_or_else(|| {
+        let bytes = base64_decode(encoded.trim()).ok_or_else(|| {
             CliError::Upstream(format!(
                 "statement download returned an undecodable body for {file_name:?}"
             ))
-        })
+        })?;
+        // The success signal. Everything above this line can be true of a
+        // response that is not a statement.
+        if let Some(err) = pdf_error(&bytes, file_name) {
+            return Err(CliError::Upstream(err));
+        }
+        Ok(bytes)
     }
 
     /// POST a JSON body to a portal path expecting a JSON reply.
@@ -429,6 +440,56 @@ fn statement_error(payload: &Value, file_name: &str) -> Option<String> {
         ));
     }
     None
+}
+
+/// Confirm that decoded statement bytes really are a PDF, returning the human
+/// message when they are not.
+///
+/// **This is the download path's only positive success signal**, which is why
+/// it exists at all. Every other tell this portal offers can be true of a
+/// response that is not a statement: it answers `200` for refusals, reports
+/// failure inside the envelope rather than on the status line, and — the case
+/// this guards — can hand back an HTML error or login page wrapped in the very
+/// same base64 `File` field a real statement arrives in. Without this check the
+/// CLI would decode that page, write it to disk under a `.pdf` name, and print
+/// "Saved …" for a file no PDF reader can open.
+///
+/// A PDF is identified by the `%PDF-` header from its spec. The scan tolerates
+/// a short preamble, because readers do and some generators emit one, but stays
+/// inside the first kilobyte so an HTML page that merely *mentions* the string
+/// further down cannot pass.
+///
+/// Returning `Upstream` (exit 5) rather than `Auth` (exit 3) even for the HTML
+/// case is deliberate: genuine session expiry is caught upstream of here by
+/// [`expired_session`] and [`parse_json`], which re-auth and retry. Reaching
+/// this function means the portal claimed success and then sent a non-PDF —
+/// that is the portal misbehaving, and retrying the login would not fix it.
+fn pdf_error(bytes: &[u8], file_name: &str) -> Option<String> {
+    const MAGIC: &[u8] = b"%PDF-";
+    let window = &bytes[..bytes.len().min(1024)];
+    if window.windows(MAGIC.len()).any(|w| w == MAGIC) {
+        return None;
+    }
+    if bytes.is_empty() {
+        return Some(format!(
+            "portal returned an empty body for statement {file_name:?} instead of a PDF"
+        ));
+    }
+    let first_visible = window
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .map(|i| window[i]);
+    if first_visible == Some(b'<') {
+        return Some(format!(
+            "portal returned an HTML page instead of a PDF for statement {file_name:?} \
+             — the session most likely lapsed mid-download; run `wabhoa auth login` and retry"
+        ));
+    }
+    Some(format!(
+        "portal returned {} bytes for statement {file_name:?} that are not a PDF \
+         (no %PDF- header) — nothing was written",
+        bytes.len()
+    ))
 }
 
 /// Base64 decoder covering both alphabets, padding optional. Deliberately
@@ -656,6 +717,52 @@ mod tests {
         // The only shape a caller may safely decode from.
         let payload = json!({ "IsSuccessful": true, "File": "SGVsbG8=" });
         assert!(statement_error(&payload, "9001.pdf").is_none());
+    }
+
+    #[test]
+    fn pdf_error_accepts_a_real_pdf_header() {
+        // The whole point of the check: a genuine statement passes.
+        assert!(pdf_error(b"%PDF-1.7\n1 0 obj\n", "9001.pdf").is_none());
+        // A short preamble before the header is tolerated, as readers do.
+        let mut padded = b"\n\n".to_vec();
+        padded.extend_from_slice(b"%PDF-1.4 rest of file");
+        assert!(pdf_error(&padded, "9001.pdf").is_none());
+    }
+
+    #[test]
+    fn pdf_error_rejects_an_html_page_wrapped_in_a_success_envelope() {
+        // The auth-expiry trap: the portal claims success and base64-wraps a
+        // login page. Writing this to disk as a `.pdf` and reporting "Saved"
+        // is the exact lie this check exists to prevent.
+        let login_page = br#"<!DOCTYPE html><html><body><input id="txtPassword"></body></html>"#;
+        let err = pdf_error(login_page, "9001.pdf").expect("HTML must be rejected");
+        assert!(err.contains("HTML page instead of a PDF"), "{err}");
+        assert!(err.contains("auth login"), "{err}");
+        // Leading whitespace before the markup must not smuggle it past.
+        let err = pdf_error(b"  \n <html>nope</html>", "9001.pdf").expect("HTML must be rejected");
+        assert!(err.contains("HTML page instead of a PDF"), "{err}");
+    }
+
+    #[test]
+    fn pdf_error_rejects_an_empty_or_arbitrary_body() {
+        let err = pdf_error(b"", "9001.pdf").expect("empty must be rejected");
+        assert!(err.contains("empty body"), "{err}");
+
+        let err = pdf_error(b"not a pdf at all", "9001.pdf").expect("garbage must be rejected");
+        assert!(err.contains("not a PDF"), "{err}");
+        // The message says nothing was saved, because nothing was.
+        assert!(err.contains("nothing was written"), "{err}");
+    }
+
+    #[test]
+    fn pdf_error_ignores_a_late_magic_string() {
+        // An HTML page that happens to contain the literal `%PDF-` well past
+        // the header window must not be accepted as a PDF.
+        let mut sneaky = b"<html><body>".to_vec();
+        sneaky.extend(std::iter::repeat_n(b' ', 2000));
+        sneaky.extend_from_slice(b"%PDF-1.7");
+        let err = pdf_error(&sneaky, "9001.pdf").expect("late magic must not count");
+        assert!(err.contains("HTML page instead of a PDF"), "{err}");
     }
 
     #[test]

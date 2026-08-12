@@ -257,6 +257,13 @@ fn statements_download_argument_errors_need_no_session() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("stdout"));
+
+    // `--json` and `-o -` would both take stdout; refusing costs no session.
+    wabhoa()
+        .args(["statements", "download", "9001.pdf", "-o", "-", "--json"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("both write to stdout"));
 }
 
 /// The `download` subcommand has to reach the reader named in the error.

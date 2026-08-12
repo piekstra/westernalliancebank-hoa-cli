@@ -191,6 +191,43 @@ The `FileName` comes off the statement-history table row's
 `onclick="DownloadStatement('…','…')"`; there is no separate list endpoint.
 This is the read `wabhoa statements download` uses.
 
+**The failure is an HTTP 200.** Confirmed live on 2026-08-11 against a
+`FileName` that does not exist — the endpoint answers `200 OK` with
+
+```json
+{"IsSuccessful": false, "StatusCode": -1100,
+ "StatusMessage": "There was an error trying to perform the requested action. …"}
+```
+
+and **no `File` key at all** — not `null`, absent. A client that trusts the
+status line writes an empty file and calls it a statement.
+`client::statement_error` requires `IsSuccessful: true` *and* a `File` string
+before anything is decoded.
+
+**Confirm the bytes are a PDF; the envelope is not enough.** `File` is base64
+text, so whatever the portal puts there arrives looking like a successful
+download — including an HTML error or login page. Nothing else distinguishes
+the two: the status line is `200`, the envelope says success, and the
+`Content-Type` is `application/json` either way, so there is no content-type
+signal to lean on. The only positive signal is the payload itself.
+`client::pdf_error` therefore requires a `%PDF-` header within the first
+kilobyte of the decoded bytes and fails with exit **5** otherwise, calling out
+HTML specifically as a probably-lapsed session. Nothing reaches disk unless
+that check passes.
+
+**The envelope carries its own auth state.** Every response nests
+`UserContext.AuthenticationState` (`"Authenticated"` on a live session)
+alongside `SiteContext`. Worth knowing as a cross-check if the expiry shapes
+above ever stop being reliable on this endpoint.
+
+**A `)` in a description is not the end of the call.** Statement descriptions
+are free text and routinely parenthesized — `DownloadStatement('9001.pdf',
+'March 2026 Statement (archived)')`. Scanning for the call's closing `)`
+without tracking quotes stops inside `(archived)` and truncates the alias.
+That corrupts the listed description *and* the name the PDF is saved under,
+silently and with a zero exit. `parse::closing_paren` is quote-aware for this
+reason.
+
 ### Date dialects
 
 Three, all normalized to ISO `YYYY-MM-DD` at the CLI boundary:

@@ -159,7 +159,7 @@ fn profile_parses_from_the_real_page() {
 #[test]
 fn statements_parse_from_a_populated_history_page() {
     let list = parse::statements(&text("statement_history_published.html"));
-    assert_eq!(list.len(), 3, "three rows in the fixture");
+    assert_eq!(list.len(), 4, "four rows in the fixture");
 
     // Rows with a `DownloadStatement(...)` handler carry the opaque file name
     // as `id` and repeat it in `file_name` — that is what `statements
@@ -185,6 +185,15 @@ fn statements_parse_from_a_populated_history_page() {
     assert_eq!(mar["description"], "March 2026 Statement (archived)");
     assert!(mar.get("id").is_none());
     assert!(mar.get("file_name").is_none());
+
+    // A *linked* row whose alias is parenthesized. Locating the handler's
+    // closing `)` without tracking quotes truncates the alias mid-word, and
+    // because that alias becomes both the listed description and the saved
+    // PDF's filename, the corruption would be silent in every output.
+    let apr = &list[3];
+    assert_eq!(apr["description"], "April 2026 Statement (revised)");
+    assert_eq!(apr["id"], "9001_SA_222222_2026-04_statement.pdf");
+    assert_eq!(apr["file_name"], apr["id"]);
 }
 
 #[test]

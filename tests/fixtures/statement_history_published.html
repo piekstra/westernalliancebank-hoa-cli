@@ -14,6 +14,9 @@
        - one row with an HTML-escaped apostrophe (`&#39;`) in the alias, to
          make sure the parser handles the portal's own escaping
        - one row without a link, to prove the parser tolerates it
+       - one linked row whose alias contains parentheses — a scan for the
+         call's closing `)` that isn't quote-aware truncates the alias there,
+         which silently corrupts both the description and the saved filename
 -->
 <section class="section">
     <div class="container">
@@ -49,6 +52,15 @@
                 <tr class="divTableRow">
                     <td class="divTableCell">03/15/2026</td>
                     <td class="divTableCell">March 2026 Statement (archived)</td>
+                    <td class="divTableCell">$100.00</td>
+                </tr>
+                <tr class="divTableRow">
+                    <td class="divTableCell">04/15/2026</td>
+                    <td class="divTableCell">
+                        <a href="#" onclick="DownloadStatement('9001_SA_222222_2026-04_statement.pdf','April 2026 Statement (revised)');">
+                            April 2026 Statement (revised)
+                        </a>
+                    </td>
                     <td class="divTableCell">$100.00</td>
                 </tr>
             </tbody>

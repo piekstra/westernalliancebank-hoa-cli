@@ -55,6 +55,33 @@ pub fn run(ctx: &Ctx, cmd: &Cmd) -> Result<(), CliError> {
     }
 }
 
+/// Why a set of download arguments can't be honored, if it can't.
+///
+/// Pure, and called before the keychain or the network is touched, so a bad
+/// invocation costs neither a session nor a portal round trip.
+fn download_blocked(
+    json: bool,
+    all: bool,
+    id: Option<&str>,
+    output: Option<&str>,
+) -> Option<String> {
+    let to_stdout = output == Some("-");
+    if all && to_stdout {
+        return Some("--all can't stream to stdout; give a directory with -o, or omit it".into());
+    }
+    // Both would write to stdout, and interleaving a PDF with the DTO yields a
+    // file that is neither. Refuse rather than emit a corrupt stream.
+    if json && to_stdout {
+        return Some(
+            "--json and `-o -` both write to stdout; give -o a file path, or drop --json".into(),
+        );
+    }
+    if !all && id.is_none() {
+        return Some("give a statement id (see `wabhoa statements list`) or --all".into());
+    }
+    None
+}
+
 fn list(ctx: &Ctx) -> Result<(), CliError> {
     let statements = ctx.read(|c| Ok(parse::statements(&c.get_text(STATEMENTS_PAGE)?)))?;
     if statements.is_empty() {
@@ -75,9 +102,19 @@ fn list(ctx: &Ctx) -> Result<(), CliError> {
 }
 
 fn download(ctx: &Ctx, args: &DownloadArgs) -> Result<(), CliError> {
+    if let Some(why) = download_blocked(
+        ctx.common.json,
+        args.all,
+        args.id.as_deref(),
+        args.output.as_deref(),
+    ) {
+        return Err(CliError::Usage(why));
+    }
     match (args.all, args.id.as_deref()) {
         (true, _) => download_all(ctx, args),
         (false, Some(id)) => download_one(ctx, id, args),
+        // `download_blocked` already rejected this; kept total rather than
+        // unreachable! so a future flag can't turn a logic slip into a panic.
         (false, None) => Err(CliError::Usage(
             "give a statement id (see `wabhoa statements list`) or --all".into(),
         )),
@@ -113,11 +150,8 @@ fn download_one(ctx: &Ctx, id: &str, args: &DownloadArgs) -> Result<(), CliError
 }
 
 fn download_all(ctx: &Ctx, args: &DownloadArgs) -> Result<(), CliError> {
-    if args.output.as_deref() == Some("-") {
-        return Err(CliError::Usage(
-            "--all can't stream to stdout; give a directory with -o, or omit it".into(),
-        ));
-    }
+    // Argument policy lives in `download_blocked`, which ran before any of
+    // this — including the `-o -` refusal that used to sit here.
 
     // One session, one reauth boundary: a mid-run expiry replays from the top
     // (nothing is written yet), avoiding a half-written directory.
@@ -379,6 +413,48 @@ fn resolve_output(output: Option<&str>, file_name: &str) -> PathBuf {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn download_blocked_accepts_the_ordinary_invocations() {
+        // One statement to a path, one to stdout, and a whole batch to a dir.
+        assert_eq!(
+            download_blocked(false, false, Some("9001.pdf"), Some("/tmp/s.pdf")),
+            None
+        );
+        assert_eq!(
+            download_blocked(false, false, Some("9001.pdf"), Some("-")),
+            None
+        );
+        assert_eq!(download_blocked(false, true, None, Some("/tmp/dir")), None);
+        assert_eq!(download_blocked(false, true, None, None), None);
+    }
+
+    #[test]
+    fn download_blocked_refuses_a_batch_to_stdout() {
+        let why = download_blocked(false, true, None, Some("-")).expect("blocked");
+        assert!(why.contains("can't stream to stdout"), "{why}");
+    }
+
+    #[test]
+    fn download_blocked_refuses_json_and_a_pdf_sharing_stdout() {
+        // Interleaving the DTO with PDF bytes produces a stream that is
+        // neither a valid JSON document nor a readable PDF, so this has to be
+        // a usage error rather than a best-effort guess at what was meant.
+        let why = download_blocked(true, false, Some("9001.pdf"), Some("-")).expect("blocked");
+        assert!(why.contains("both write to stdout"), "{why}");
+        // A real path with --json is fine — the DTO goes to stdout, PDF to disk.
+        assert_eq!(
+            download_blocked(true, false, Some("9001.pdf"), Some("/tmp/s.pdf")),
+            None
+        );
+    }
+
+    #[test]
+    fn download_blocked_requires_an_id_or_all() {
+        let why = download_blocked(false, false, None, None).expect("blocked");
+        assert!(why.contains("statement id"), "{why}");
+        assert!(why.contains("--all"), "{why}");
+    }
 
     #[test]
     fn output_defaults_to_a_derived_file_name() {

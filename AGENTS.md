@@ -111,6 +111,14 @@ Run `make verify` before considering a change done — it's exactly what CI runs
   address; the banned-substring test covers it).
 - **The transaction-detail modal is client-side.** There is no per-transaction
   endpoint; `payments get` filters the search response.
+- **A statement download is only believed once the bytes say `%PDF-`.**
+  `/Statements/GetStatementByteArray` answers `200` for refusals, returns the
+  PDF as base64 *inside* a JSON envelope, and is `application/json` either way
+  — so neither the status line nor a content-type distinguishes a statement
+  from an HTML error or login page. `client::statement_error` checks the
+  envelope and `client::pdf_error` checks the magic bytes; only then is a file
+  written. Don't "simplify" either away, and don't report a saved statement
+  before both pass.
 - **`/Payment/MakePayment` is a GET and reading it pays nothing.** It's the only
   page exposing each property's `MgCoId`/`AssocId`/`MemberId` triple, which the
   balance endpoint is keyed on. Don't move properties to `/Properties/Manage`,

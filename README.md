@@ -162,7 +162,15 @@ $ wabhoa statements download --all -o ~/Documents/hoa-statements/
 appended); `-o -` streams the PDF to stdout for piping. `--all` fetches every
 statement the portal lists into the given directory (or the current one). The
 `--json` shape is `statement-download/v1` for a single fetch and
-`statement-download-batch/v1` for `--all`.
+`statement-download-batch/v1` for `--all`. Since `-o -` and `--json` would both
+claim stdout, asking for both is a usage error rather than a corrupt stream.
+
+A file is written only after the downloaded bytes are confirmed to be a PDF.
+The portal reports failures with an HTTP `200` and can hand back an HTML error
+or login page in the same base64 field a real statement arrives in, so a
+missing `%PDF-` header is treated as an upstream failure (exit 5) with nothing
+written — rather than saving a login page under a `.pdf` name and reporting
+success.
 
 Many associations publish nothing here, in which case `list` is empty and
 `download --all` reports zero. That is a portal-side fact, not a bug.

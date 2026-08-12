@@ -318,12 +318,51 @@ fn download_call(row: &str) -> (Option<String>, Option<String>) {
         return (None, None);
     };
     let rest = &row[start + "DownloadStatement(".len()..];
-    let end = rest.find(')').unwrap_or(rest.len());
+    let end = closing_paren(rest).unwrap_or(rest.len());
     let inside = &rest[..end];
     let mut args = split_call_args(inside);
     let file_name = args.next().map(unescape_html);
     let file_alias = args.next().map(unescape_html);
     (file_name, file_alias)
+}
+
+/// Byte offset of the `)` that closes the call, ignoring any that appear
+/// *inside* a quoted argument.
+///
+/// A bare `find(')')` looks right and is wrong: statement descriptions are
+/// free text and routinely parenthesized, so
+/// `DownloadStatement('9001.pdf','March 2026 Statement (archived)')` would stop
+/// at the `)` in `(archived)` and silently truncate the alias to
+/// `March 2026 Statement (archived`. That doesn't error — it corrupts the
+/// description, and with it the filename `statements download` saves the PDF
+/// under. Scan with the same quote awareness the argument splitter uses.
+///
+/// Quotes and `)` are ASCII, so byte offsets always land on a character
+/// boundary even when the alias contains multi-byte text.
+fn closing_paren(s: &str) -> Option<usize> {
+    let bytes = s.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(q) => {
+                // A JS escape consumes the next byte, so `\'` doesn't close.
+                if b == b'\\' && i + 1 < bytes.len() {
+                    i += 2;
+                    continue;
+                }
+                if b == q {
+                    quote = None;
+                }
+            }
+            None if b == b'\'' || b == b'"' => quote = Some(b),
+            None if b == b')' => return Some(i),
+            None => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 /// Split a JS argument list on commas outside of quoted strings, returning the
@@ -719,6 +758,36 @@ mod tests {
 
         // A row without the handler at all returns nothing rather than panics.
         assert_eq!(download_call("<tr><td>plain</td></tr>"), (None, None));
+    }
+
+    #[test]
+    fn download_call_keeps_parentheses_inside_the_alias() {
+        // Descriptions are free text and often parenthesized. Finding the
+        // call's closing `)` without tracking quotes would truncate the alias
+        // at `(archived` — silently, and the truncated text would then name
+        // the saved PDF.
+        let (file, alias) = download_call(
+            r##"<a onclick="DownloadStatement('9001_SA_222222_2026-03.pdf','March 2026 Statement (archived)');">x</a>"##,
+        );
+        assert_eq!(file.as_deref(), Some("9001_SA_222222_2026-03.pdf"));
+        assert_eq!(alias.as_deref(), Some("March 2026 Statement (archived)"));
+
+        // Nested and unbalanced parens inside the quotes are just text too.
+        let (_, alias) =
+            download_call(r##"<a onclick="DownloadStatement('f.pdf','A (B (C)) :-)');">x</a>"##);
+        assert_eq!(alias.as_deref(), Some("A (B (C)) :-)"));
+    }
+
+    #[test]
+    fn closing_paren_finds_the_call_terminator_not_a_quoted_one() {
+        assert_eq!(closing_paren("'a','b')"), Some(7));
+        // A `)` inside quotes is skipped in favour of the real one.
+        assert_eq!(closing_paren("'a','b(c)')"), Some(10));
+        // An escaped quote does not end the string early.
+        assert_eq!(closing_paren(r"'a\'b')"), Some(6));
+        // No terminator at all is a `None`, and the caller falls back to the
+        // rest of the row rather than panicking on a bad slice.
+        assert_eq!(closing_paren("'a','b'"), None);
     }
 
     #[test]
