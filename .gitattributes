@@ -1,4 +1,0 @@
-# Cargo.lock is an auto-generated dependency lock. Mark it generated so diff
-# tools (and code review) treat it as non-substantive rather than a file that
-# needs line-by-line review.
-Cargo.lock linguist-generated=true
