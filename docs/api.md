@@ -189,7 +189,7 @@ Answers a JSON envelope with the PDF as base64 text — not a raw binary stream:
 On failure, `IsSuccessful` is `false` and `StatusMessage` carries a human hint.
 The `FileName` comes off the statement-history table row's
 `onclick="DownloadStatement('…','…')"`; there is no separate list endpoint.
-This is the read `wabhoa statements download` uses.
+This is the read `wabhoa documents download` uses.
 
 **The failure is an HTTP 200.** Confirmed live on 2026-08-11 against a
 `FileName` that does not exist — the endpoint answers `200 OK` with
@@ -279,5 +279,5 @@ not in the write catalog and `wabhoa api` will call them:
 
 `/payment/CheckDuplicatePayment` is a read despite living in the payment flow —
 it asks whether a payment *would* be a duplicate. `GetStatementByteArray` is
-now implemented by `wabhoa statements download` and is documented above with
+now implemented by `wabhoa documents download` and is documented above with
 the rest of the reads.

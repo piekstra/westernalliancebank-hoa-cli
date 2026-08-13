@@ -161,39 +161,53 @@ fn statements_parse_from_a_populated_history_page() {
     let list = parse::statements(&text("statement_history_published.html"));
     assert_eq!(list.len(), 4, "four rows in the fixture");
 
-    // Rows with a `DownloadStatement(...)` handler carry the opaque file name
-    // as `id` and repeat it in `file_name` — that is what `statements
-    // download` posts to the byte-array endpoint.
+    // documents/v1 shape: rows with a `DownloadStatement(...)` handler carry the
+    // opaque file name as `id` — that is what `documents download` posts to the
+    // byte-array endpoint — plus `name` (the alias), `category`, and `amount`.
     let jan = &list[0];
     assert_eq!(jan["date"], "2026-01-15");
-    assert_eq!(jan["description"], "January 2026 Statement");
+    assert_eq!(jan["name"], "January 2026 Statement");
+    assert_eq!(jan["category"], "statement");
     assert_eq!(jan["amount"], 100.0);
     assert_eq!(jan["id"], "9001_SA_222222_2026-01_statement.pdf");
-    assert_eq!(jan["file_name"], jan["id"]);
 
     // The portal HTML-escapes attribute values, so an apostrophe in the alias
-    // arrives as `&#39;`. Missing the decode would leave a garbled description
-    // and — worse — a garbled file name posted to the endpoint.
+    // arrives as `&#39;`. Missing the decode would leave a garbled name and —
+    // worse — a garbled file name posted to the endpoint.
     let feb = &list[1];
-    assert_eq!(feb["description"], "O'Sample Q1 Statement");
+    assert_eq!(feb["name"], "O'Sample Q1 Statement");
     assert_eq!(feb["id"], "9001_SA_222222_2026-02_statement.pdf");
 
-    // A row without a working download handler is worth listing (the user
-    // asked to see everything published) but must omit `id` so `download`
-    // knows there's nothing to POST for it.
+    // A row without a working download handler is worth listing (the user asked
+    // to see everything published), but documents/v1 needs an `id` on every
+    // item — so it lists with an empty id (present, but nothing to POST).
     let mar = &list[2];
-    assert_eq!(mar["description"], "March 2026 Statement (archived)");
-    assert!(mar.get("id").is_none());
-    assert!(mar.get("file_name").is_none());
+    assert_eq!(mar["name"], "March 2026 Statement (archived)");
+    assert_eq!(mar["id"], "");
 
     // A *linked* row whose alias is parenthesized. Locating the handler's
     // closing `)` without tracking quotes truncates the alias mid-word, and
-    // because that alias becomes both the listed description and the saved
-    // PDF's filename, the corruption would be silent in every output.
+    // because that alias becomes both the listed name and the saved PDF's
+    // filename, the corruption would be silent in every output.
     let apr = &list[3];
-    assert_eq!(apr["description"], "April 2026 Statement (revised)");
+    assert_eq!(apr["name"], "April 2026 Statement (revised)");
     assert_eq!(apr["id"], "9001_SA_222222_2026-04_statement.pdf");
-    assert_eq!(apr["file_name"], apr["id"]);
+}
+
+#[test]
+fn statements_conform_to_the_documents_v1_profile() {
+    // Every listed row round-trips into the canonical documents/v1 `Document`
+    // (the `amount` provider-extra is ignored on deserialize), proving the wire
+    // shape matches the shared profile.
+    let list = parse::statements(&text("statement_history_published.html"));
+    assert_eq!(list.len(), 4);
+    for item in &list {
+        let doc: pk_cli_documents::Document = serde_json::from_value(item.clone())
+            .unwrap_or_else(|e| panic!("not documents/v1-conformant: {e}\n{item:#}"));
+        assert!(!doc.name.is_empty());
+        // `id` is present on every item (empty for a non-downloadable row).
+        assert!(item.get("id").is_some());
+    }
 }
 
 #[test]

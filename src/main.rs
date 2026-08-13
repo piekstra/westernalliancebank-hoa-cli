@@ -17,7 +17,7 @@ use pk_cli_selfupdate::{SelfUpdateArgs, Updater};
 
 use wabhoa::client::establish_session;
 use wabhoa::commands::{
-    api, methods, notifications, payments, profile, properties, scheduled, statements, summary,
+    api, documents, methods, notifications, payments, profile, properties, scheduled, summary,
     writes, Ctx,
 };
 use wabhoa::config::{self, Config, KEYCHAIN_ACCOUNT, SESSION_ACCOUNT};
@@ -62,9 +62,9 @@ enum Command {
     /// Payment notices the portal emailed out.
     #[command(subcommand)]
     Notifications(notifications::Cmd),
-    /// Association statement packets, when published.
-    #[command(subcommand)]
-    Statements(statements::Cmd),
+    /// Published documents — association statement packets (documents/v1).
+    #[command(subcommand, visible_alias = "statements")]
+    Documents(documents::Cmd),
     /// The account holder on file.
     Profile,
     /// Portal write endpoints this CLI deliberately does not implement.
@@ -129,7 +129,7 @@ fn run(cli: &Cli) -> Result<(), CliError> {
         Command::Scheduled(cmd) => scheduled::run(&ctx, cmd),
         Command::Methods(cmd) => methods::run(&ctx, cmd),
         Command::Notifications(cmd) => notifications::run(&ctx, cmd),
-        Command::Statements(cmd) => statements::run(&ctx, cmd),
+        Command::Documents(cmd) => documents::run(&ctx, cmd),
         Command::Profile => profile::run(&ctx),
         Command::Writes => writes::run(&ctx),
         Command::Api(args) => api::run(&ctx, args),
@@ -161,12 +161,13 @@ fn run(cli: &Cli) -> Result<(), CliError> {
                     "scheduled",
                     "methods",
                     "notifications",
-                    "statements",
+                    "documents",
                     "profile",
                     "writes",
                     "api",
                 ],
-            );
+            )
+            .with_profiles(&[pk_cli_documents::PROFILE]);
             output::json(&serde_json::to_value(&info).unwrap());
             Ok(())
         }

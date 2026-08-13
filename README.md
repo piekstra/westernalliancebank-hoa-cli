@@ -86,9 +86,9 @@ wabhoa scheduled list                 # recurring payments the portal will make
 wabhoa methods list                   # saved bank accounts/cards, masked
 wabhoa notifications list             # payment notices sent to you
 wabhoa notifications get <id>         # one notice, with its message body
-wabhoa statements list                # statement packets, if published
-wabhoa statements download <id> -o PATH   # one statement's PDF
-wabhoa statements download --all -o DIR   # every published statement
+wabhoa documents list                 # statement packets, if published (alias: statements)
+wabhoa documents download <id> -o PATH    # one statement's PDF
+wabhoa documents download --all -o DIR    # every published statement
 wabhoa profile                        # the account holder on file
 wabhoa writes                         # portal writes this CLI does NOT do
 wabhoa api <path> [--data JSON] [--raw]   # raw passthrough
@@ -143,26 +143,30 @@ $ wabhoa --json payments get 10000001
 }
 ```
 
-### Statement downloads
+### Statement downloads (the `documents/v1` profile)
 
-Associations that publish PDF statement packets can be pulled locally:
+Statement packets are exposed under the shared **`documents/v1`** surface —
+`documents list` / `documents download` — so any tool that knows the profile
+drives wabhoa the same way it drives the other family CLIs. The old spelling
+`statements` stays as an alias.
 
 ```console
-$ wabhoa statements list
-DATE       | DESCRIPTION            | AMOUNT | ID
+$ wabhoa documents list
+DATE       | NAME                   | AMOUNT | ID
 2026-01-15 | January 2026 Statement | 100.0  | 9001_SA_222222_2026-01_statement.pdf
 
-$ wabhoa statements download 9001_SA_222222_2026-01_statement.pdf
+$ wabhoa documents download 9001_SA_222222_2026-01_statement.pdf
 Saved January 2026 Statement → 2026-01-15 January_2026_Statement.pdf (12345 bytes)
 
-$ wabhoa statements download --all -o ~/Documents/hoa-statements/
+$ wabhoa documents download --all -o ~/Documents/hoa-statements/
 ```
 
 `-o PATH` writes to a file (or a directory, which gets the derived name
 appended); `-o -` streams the PDF to stdout for piping. `--all` fetches every
 statement the portal lists into the given directory (or the current one). The
-`--json` shape is `statement-download/v1` for a single fetch and
-`statement-download-batch/v1` for `--all`. Since `-o -` and `--json` would both
+`--json` shapes are `document-list/v1` (list), `document-download/v1` (a single
+fetch), and `document-download-batch/v1` (`--all`); the statement's `amount`
+rides along as a provider-extra field. Since `-o -` and `--json` would both
 claim stdout, asking for both is a usage error rather than a corrupt stream.
 
 A file is written only after the downloaded bytes are confirmed to be a PDF.

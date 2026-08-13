@@ -18,7 +18,7 @@ const COMMANDS: &[&str] = &[
     "scheduled",
     "methods",
     "notifications",
-    "statements",
+    "documents",
     "profile",
     "writes",
     "api",
@@ -64,8 +64,8 @@ fn nested_subcommand_help_renders() {
         ("scheduled", "list"),
         ("methods", "list"),
         ("notifications", "list"),
-        ("statements", "list"),
-        ("statements", "download"),
+        ("documents", "list"),
+        ("documents", "download"),
     ] {
         wabhoa().args([group, sub, "--help"]).assert().success();
     }
@@ -79,7 +79,7 @@ fn list_subcommands_all_have_the_ls_alias() {
         "scheduled",
         "methods",
         "notifications",
-        "statements",
+        "documents",
     ] {
         let out = wabhoa().args([group, "--help"]).assert().success();
         let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
@@ -241,26 +241,26 @@ fn error_messages_only_reference_real_commands() {
     }
 }
 
-/// `statements download` validates its arguments before opening a session:
+/// `documents download` validates its arguments before opening a session:
 /// `--all` with no output target is fine (writes to cwd), but `--all -o -`
 /// can't stream a batch to stdout, and neither can naming no id at all.
 #[test]
-fn statements_download_argument_errors_need_no_session() {
+fn documents_download_argument_errors_need_no_session() {
     wabhoa()
-        .args(["statements", "download"])
+        .args(["documents", "download"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("statements list"));
+        .stderr(predicate::str::contains("documents list"));
 
     wabhoa()
-        .args(["statements", "download", "--all", "-o", "-"])
+        .args(["documents", "download", "--all", "-o", "-"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("stdout"));
 
     // `--json` and `-o -` would both take stdout; refusing costs no session.
     wabhoa()
-        .args(["statements", "download", "9001.pdf", "-o", "-", "--json"])
+        .args(["documents", "download", "9001.pdf", "-o", "-", "--json"])
         .assert()
         .code(2)
         .stderr(predicate::str::contains("both write to stdout"));
@@ -268,12 +268,31 @@ fn statements_download_argument_errors_need_no_session() {
 
 /// The `download` subcommand has to reach the reader named in the error.
 #[test]
-fn statements_download_has_a_get_alias() {
-    let out = wabhoa().args(["statements", "--help"]).assert().success();
+fn documents_download_has_a_get_alias() {
+    let out = wabhoa().args(["documents", "--help"]).assert().success();
     let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
     assert!(
         stdout.contains("get"),
         "expected `download` to expose a `get` alias for parity with sibling CLIs"
+    );
+}
+
+/// The old `statements` spelling stays as an alias for one major version, so
+/// `wabhoa statements …` keeps resolving to `documents`.
+#[test]
+fn statements_is_kept_as_an_alias_for_documents() {
+    // `statements download` with no id hits the same pre-session usage error.
+    wabhoa()
+        .args(["statements", "download"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("documents list"));
+    // And it appears in top-level help as an alias of `documents`.
+    let out = wabhoa().arg("--help").assert().success();
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    assert!(
+        stdout.contains("statements"),
+        "statements alias missing from --help"
     );
 }
 
