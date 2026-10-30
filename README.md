@@ -23,7 +23,7 @@ portal *can* do that this CLI deliberately doesn't.
 ```console
 # from source (recent stable Rust; MSRV 1.88)
 $ cargo install --git https://github.com/piekstra/westernalliancebank-hoa-cli --locked
-$ make install        # cargo install --path . --force
+$ make install        # cargo install --locked --path . --force
 ```
 
 Prebuilt tarballs ship with each release; `wabhoa self-update` pulls the latest.
