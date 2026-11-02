@@ -1,0 +1,69 @@
+<!-- scrubbed capture: the scheduled-payments table -->
+<table class="hidden-xs nowrap text-nowrap">
+    <thead>
+        <tr>
+            <th scope="col"></th>
+            <th scope="col">Property</th>
+            <th scope="col">Next Payment Date</th>
+            <th scope="col">Frequency</th>
+            <th scope="col" nowrap="nowrap">Amount</th>
+            <th scope="col" nowrap="nowrap"></th>
+        </tr>
+    </thead>
+    <tbody>
+                        <tr data-id="sp-2"
+                            id="ECheck1234567"
+                            paymentType="ECheck"
+                            data-payment-id="1234567"
+                            data-frequency="Monthly"
+                            data-next-date="09/01/2026"
+                            data-end-date=""
+                            data-is-tnb="false"
+                            data-reminder-sent="false"
+                            data-amount="100.0000"
+                            data-fee="0.0000"
+                            data-member-payment-fee="0"
+                            data-is-percent="false"
+                            class="nowrap">
+
+                            <td style="width:101px;">
+                                    <img src="img/Icon-Check.svg" alt="Check Icon" style="margin-left:30px;" />
+                                <div style="" hidden>
+                                    <button class="btn-expand-cc"
+                                            onclick="ToggleCreditCardExpand(event, 'ECheck1234567')"
+                                            style="background: none; border: none; cursor: pointer; padding: 0; margin-right: 4px; text-align: left;"
+                                            aria-label="Expand payment details"
+                                            data-expanded="false"
+                                            data-loaded="false">
+                                        <img class="icon-expand"
+                                             src="/img/icon-add-square.svg"
+                                             alt="Expand"
+                                             style="width: 20px; height: 20px; margin-right: 8px;
+                                             visibility:hidden;" />
+                                        <img class="icon-collapse"
+                                             src="/img/icon-sub-square.svg"
+                                             alt="collapse"
+                                             style="width: 20px; height: 20px; display: none; margin-right: 8px;
+                                             visibility:hidden;" />
+                                        <img src="/img/Icon-Card.svg"
+                                             alt="Card Icon"
+                                             style="width:30px; height:30px" />
+                                    </button>
+                                </div>
+                            </td>
+                            <td>1 Sample St </td>
+                            <td>09/01/2026</td>
+                            <td class="col-monthly">Monthly</td>
+                            <td class="col-amount" style="white-space:nowrap;">$100.00</td>
+                            <td class="col-buttons" style="white-space:nowrap;">
+                                <button class="btn-narrow button" style="margin-bottom: 0" onclick="EditScheduledPayment(1234567, 'Monthly', 'ECheck')">Edit</button>
+                                <button class="btn-secondary btn-narrow" onclick="DisplayDeleteConfirmation('ECheck', 'ECheck1234567', '09/01/2026',
+                                                                                                            '1 Sample St ', '$100.00', 'Monthly',
+                                                                                                            '01/01/1900', '9001', 'SA', '222222')">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+
+    </tbody>
+</table>

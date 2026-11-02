@@ -1,0 +1,32 @@
+<!-- scrubbed capture: notification rows + bodies -->
+<div class="divTableBody">
+<div class="divTableRow" role="row">
+                            <div class="divTableCell" role="cell">08/01/2026</div>
+                            <div class="divTableCell" role="cell"><a href="#" onclick="javascript:showMessageDetail(50000001);">Confirmation of Payment - SAMPLE COMMUNITY ASSOCIATION INC</a></div>
+                            <div class="divTableCell" role="cell">owner@example.com</div>
+                            <div class="divTableCell" role="cell"></div>
+                        </div>
+<div class="divTableRow" role="row">
+                            <div class="divTableCell" role="cell">07/22/2026</div>
+                            <div class="divTableCell" role="cell"><a href="#" onclick="javascript:showMessageDetail(50000002);">Upcoming Payment - SAMPLE COMMUNITY ASSOCIATION INC</a></div>
+                            <div class="divTableCell" role="cell">owner@example.com</div>
+                            <div class="divTableCell" role="cell"></div>
+                        </div>
+</div>
+<script>
+var messagesArray = [];
+messagesArray.push({
+                Id: 50000001,
+                Message: '<p>Dear Sample Owner,</p><p>This notice confirms that we are processing a payment on your behalf. Please allow several days for your association to update their records.</p><p><table id = "TableData" ><tbody><tr><td class="ColumnName">Management Company Name:</td><td class="ColumnValue"><b>Sample Management LLC / 9001</b></td></tr>  <tr><td class="ColumnName">Association Name:</td><td class="ColumnValue"><b>SAMPLE COMMUNITY ASSOCIATION INC / SA</b></td></tr>  <tr><td class="ColumnName">Property Account Number:</td><td class="ColumnValue"><b>222222</b></td></tr>  <tr><td class="ColumnName">Transaction Number:</td><td class="ColumnValue"><b>10000001</b></td></tr>  <tr><td class="ColumnName">Payment Frequency:</td><td class="ColumnValue"><b>Monthly</b></td></tr>  <tr><td class="ColumnName">Payment Date:</td><td class="ColumnValue"><b>08/01/2026</b></td></tr>  <tr><td class="ColumnName">Payment Total:</td><td class="ColumnValue"><b>$100.00</b></td></tr>  </tbody ></table >  </p><p>    <br></p><p>If you have any questions or concerns, please contact Sample Bank at (555) 555-0001 from 7:00 am until 5:00 pm Pacific Standard Time, Monday through Friday.</p><p>    <br></p><p>Sincerely,</p><p>Sample Bank</p><hr><p><em>This email communication is provided by Sample Bank, Member FDIC. This email and any attached documents contain privileged and confidential information intended solely for the named recipient. If you are not the intended recipient, you are hereby notified that any retention, dissemination or copying of this email and any attachments is strictly prohibited. If you received this email in error, please contact us at payments@example.com and immediately delete the email and any attachments from your computer and/or network systems. Please note that Sample Bank accepts no responsibility for computer viruses or malware associated with the transmission of this communication and it is your responsibility to scan this email and any attachments to it.</em></p><br>',
+                Subject: "Confirmation of Payment - SAMPLE COMMUNITY ASSOCIATION INC",
+                ToEmailAddress: "owner@example.com",
+                CcEmailAddress: ""
+            });
+messagesArray.push({
+                Id: 50000002,
+                Message: ' <title>Upcoming Payment</title> <p>Dear Sample Owner,</p> <p>This is a courtesy reminder that your payment is scheduled to be processed on 08/01/2026. Your payment details are listed below for your reference.</p> <p><table id = "TableData" ><tbody><tr><td class="ColumnName">Management Company Name:</td><td class="ColumnValue"><b>Sample Management LLC / 9001</b></td></tr>  <tr><td class="ColumnName">Association Name:</td><td class="ColumnValue"><b>SAMPLE COMMUNITY ASSOCIATION INC / SA</b></td></tr>  <tr><td class="ColumnName">Property Account Number:</td><td class="ColumnValue"><b>222222</b></td></tr>  <tr><td class="ColumnName">Payment Amount:</td><td class="ColumnValue"><b>$100.00</b></td></tr>  <tr><td class="ColumnName">Payment Date:</td><td class="ColumnValue"><b>08/01/2026</b></td></tr>  </tbody ></table >  </p> <p>Need to modify your payment? Click <a href="https://pay.westernalliancebank.com/Account/ExpressLogin?token=00000000-0000-4000-8000-000000000000" target="_blank">here</a> to receive an Express Login link to edit your payment.</p> <p>If you wish to cancel this payment, please click <a href="https://pay.westernalliancebank.com/payment/CancelPayment?token=00000000-0000-4000-8000-000000000001" target="_blank">here</a>. To cancel your payment schedule including your next payment, your payment must be cancelled prior to the payment date listed above.</p> <p>If you have any questions or concerns, please contact Sample Bank at (555) 555-0001 from 7:00 am until 5:00 pm Pacific Standard Time, Monday through Friday.</p> <p>Sincerely,</p> <p>Sample Bank</p> <hr> <p><em>This email communication is provided by Sample Bank, Member FDIC. This email and any attached documents contain privileged and confidential information intended solely for the named recipient. If you are not the intended recipient, you are hereby notified that any retention, dissemination or copying of this email and any attachments is strictly prohibited. If you received this email in error, please contact us at payments@example.com and immediately delete the email and any attachments from your computer and/or network systems. Please note that Sample Bank accepts no responsibility for computer viruses or malware associated with the transmission of this communication and it is your responsibility to scan this email and any attachments to it.</em></p>',
+                Subject: "Upcoming Payment - SAMPLE COMMUNITY ASSOCIATION INC",
+                ToEmailAddress: "owner@example.com",
+                CcEmailAddress: ""
+            });
+</script>

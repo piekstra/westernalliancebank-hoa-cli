@@ -1,0 +1,5 @@
+<!-- scrubbed capture: profile fields -->
+<input type="text" class="form-control" id="txtFirstName" name="FirstName" maxlength="50" oninput="validations.sanitizeName(this)" placeholder="required field" required value="Sample">
+<input type="text" class="form-control" id="txtLastName" name="LastName" maxlength="50" oninput="validations.sanitizeName(this)" placeholder="required field" required value="Owner">
+<input type="text" class="form-control" id="txtPhoneNumber" maxlength="14" oninput="this.value=this.value.replace(/[^0-9 ]/g,'').slice(0,10)" placeholder="required field" required value="******0000" data-original="5555550000" data-dirty="false">
+<input type="text" class="form-control" id="txtEmailAddress" name="EmailAddress" maxlength="50" placeholder="required field" required value="p************@example.com" data-original="owner@example.com" data-dirty="false">

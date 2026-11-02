@@ -1,0 +1,17 @@
+# Build artifacts
+/target
+**/*.rs.bk
+
+# Environment / editor
+.env
+.DS_Store
+.idea/
+.vscode/
+
+# Credentials must never be committed
+*.pem
+*.key
+secrets.*
+
+# twapp session-local files
+.twapp-*.json

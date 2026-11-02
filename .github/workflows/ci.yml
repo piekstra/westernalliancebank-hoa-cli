@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: fmt / clippy / test / build
+    # macOS: the platform the tool actually targets, so CI compiles `keyring`
+    # against the apple-native Security backend rather than libsecret. Free now
+    # that the repo is public. (It ran on ubuntu-latest while private, where
+    # macOS runners bill at 10x — the git history has that version.)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all
+      - run: cargo build --release
+
+  security:
+    name: audit / deny / secrets
+    runs-on: ubuntu-latest
+    # gitleaks-action calls the PR API to enumerate the commits to scan, and
+    # cargo-audit posts advisory annotations. Without these the job dies with
+    # "Resource not accessible by integration" — but only on pull_request
+    # events, since a push carries its commits in the payload. Every run so far
+    # has been a push, which is why this hasn't bitten yet; rpm-fl-cli's first
+    # PR failed exactly this way.
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+      checks: write # rustsec/audit-check publishes a check run; without this it dies with "Resource not accessible by integration"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo-audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

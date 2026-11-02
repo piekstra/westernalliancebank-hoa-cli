@@ -1,0 +1,151 @@
+# AGENTS.md
+
+Guidance for AI coding agents (and humans) working in this repo. Tool-agnostic;
+`CLAUDE.md` points here.
+
+## What this is
+
+`wabhoa` — a Rust CLI for the **Western Alliance Bank community association
+payment portal** (`pay.westernalliancebank.com`), the site management companies
+hand to homeowners for paying HOA assessments. A thin, portal-specific layer
+over the shared [`cli-common`](https://github.com/piekstra/cli-common)
+`pk-cli-*` crates (auth, http, config, secrets, self-update). This repo owns the
+portal client, the parsers, the commands, and their DTOs.
+
+There is no official API. Everything targets the undocumented endpoints the
+portal's own front end calls, mapped by watching its traffic and reading its
+`starscream.*` JavaScript, and written up in [`docs/api.md`](docs/api.md).
+
+## Build, test, lint
+
+```console
+make verify     # fmt-check + clippy -D warnings + tests + smoke — the CI gate
+make test       # unit + integration (fully offline; no network, no creds)
+make dev        # debug build, re-signed so keychain grants survive rebuilds
+cargo run -- summary
+```
+
+Run `make verify` before considering a change done — it's exactly what CI runs.
+
+## Layout
+
+- `src/lib.rs` — module root. Modules are public so integration tests can drive
+  the parsers directly; `main.rs` is a thin clap shell over them.
+- `src/main.rs` — command tree, login flow, exit-code mapping.
+- `src/client.rs` — the HTTP client: cookie session, login, rotation write-back,
+  and the redirect-means-expired detection. Its module doc explains the auth
+  model.
+- `src/parse.rs` — page/JSON → flat DTOs. **The interesting logic lives here**,
+  because the portal has no API contract, only markup that can drift. The HTML
+  scanning itself is `pk-cli-scrape`; this file holds the portal's own element
+  IDs, attribute names, and CSS classes, which are policy and stay here.
+- `src/commands/*.rs` — one module per command group; each renders a human table
+  and a `--json` DTO.
+- `src/writes.rs` — catalog of the portal's mutating endpoints. Powers both
+  `wabhoa writes` and the `api` POST guard.
+- `src/config.rs` — non-secret config; every secret is keychain-only.
+- `src/dates.rs` — the portal's three date dialects ⇄ ISO.
+- `tests/` — offline surface + contract tests, and `tests/fixtures/` (read its
+  README before touching a fixture).
+
+## Conventions (do not break these)
+
+- **`--json` on every command**, emitting one DTO tagged with a `schema` field
+  (e.g. `"schema":"payment-list/v1"`). Human output → stdout as a table;
+  diagnostics → stderr. Keep the two paths in sync; a breaking DTO change bumps
+  the `/vN` suffix.
+- **Exit codes:** 0 ok · 2 usage · 3 auth · 4 not found · 5 upstream · 6
+  refused-write. Validate args **before** touching the keychain or network, so
+  `--help` and bad args never prompt, hang, or hit the portal. `payments list`
+  resolves its date range twice for exactly this reason — don't "fix" it.
+- **Read-only.** Every command observes. If a write is ever added it must prompt
+  for confirmation, require `--force` non-interactively (exit 6 otherwise), be
+  removed from `src/writes.rs`, and this section must stop saying "read-only" —
+  as must the README's second paragraph and `writes.rs`'s module doc.
+- **Secrets** come from the OS keychain or stdin — never argv, never logs, never
+  a file in the repo. Service `piekstra.wabhoa`, accounts `password`, `session`.
+- **Dates** are ISO `YYYY-MM-DD` at the CLI boundary, converted in `dates.rs`.
+  Never surface the portal's `MM/DD/YYYY` or `/Date(…)/` in a flag or a DTO.
+- **Parsers must be total.** A portal redesign should empty a table, not panic.
+  `parsers_tolerate_unrecognized_markup` enforces it; keep new parsers in it.
+
+## Portal-specific gotchas
+
+- **A zero balance usually means "not published", not "paid up".** When
+  `ShowDisplayBalance` is `false` the portal reports `0` for a balance it simply
+  doesn't have. `parse::balance` omits the field and sets
+  `balance_published: false`; `parse::properties` drops `attr_Balance` for the
+  same reason. Do not "restore the missing balance column" — printing `0.00`
+  there tells the user they owe nothing, which may be false.
+- **Reads go through `Ctx::read`, not `Ctx::client`.** That is what wraps them
+  in `pk_cli_auth::reauth::with_reauth`, so a lapsed session is recovered from
+  the stored password instead of failing. A command that calls `client()`
+  directly silently opts out of that. Multi-request commands put **all** their
+  reads inside one `read` call — `summary` does — because a session that lapses
+  midway would otherwise render a half-empty dashboard that reads as "no data".
+  `read` is for reads only: the closure runs twice on the recovery path.
+- **An expired session never returns 401** — it has *three* different shapes,
+  and `client::expired_session` checks all of them. Don't reduce it to a status
+  check, and don't drop a case as redundant:
+  - a 302 to `/Home` — but the redirect **prefixes** the requested path, so
+    `/Properties/StatementHistory` comes back as
+    `/Home/Properties/StatementHistory`. Match the path *starting* with
+    `/Home`, not ending with it.
+  - a `200` serving the login form (`id="txtPassword"`).
+  - **a `200` with an empty body and no redirect** (`/Account/Profile`,
+    `/Notifications/List`). This one is silent: without the check, the parser
+    finds nothing and the CLI cheerfully reports "no notifications found" with
+    exit 0 to a logged-out user. Nothing this CLI requests legitimately answers
+    with an empty body.
+- **`PaymentTotal` is `0` on processed records.** The portal computes it only
+  while composing a payment. `total` is derived as amount + fee.
+- **.NET sentinel dates.** `/Date(-62135596800000…)/` is `DateTime.MinValue` and
+  `01/01/1900` is the "no assessment scheduled" placeholder. Both normalize to
+  absent. A year-0001 date in output is a bug.
+- **The portal's own typo is load-bearing:** the payment endpoint is
+  `/Payment/SubmittPayment`, two `t`s. Don't correct it in `writes.rs` — the
+  guard matches on the real path.
+- **Cloudflare may obfuscate email cells** into `data-cfemail` hex. Requests
+  with `X-Requested-With: XMLHttpRequest` seem to get plain addresses. Both
+  parse — and `data-cfemail` must never reach a fixture (it decodes to the real
+  address; the banned-substring test covers it).
+- **The transaction-detail modal is client-side.** There is no per-transaction
+  endpoint; `payments get` filters the search response.
+- **A statement download is only believed once the bytes say `%PDF-`.**
+  `/Statements/GetStatementByteArray` answers `200` for refusals, returns the
+  PDF as base64 *inside* a JSON envelope, and is `application/json` either way
+  — so neither the status line nor a content-type distinguishes a statement
+  from an HTML error or login page. `client::statement_error` checks the
+  envelope and `client::pdf_error` checks the magic bytes; only then is a file
+  written. Don't "simplify" either away, and don't report a saved statement
+  before both pass.
+- **`/Payment/MakePayment` is a GET and reading it pays nothing.** It's the only
+  page exposing each property's `MgCoId`/`AssocId`/`MemberId` triple, which the
+  balance endpoint is keyed on. Don't move properties to `/Properties/Manage`,
+  which omits them.
+
+## Safety & privacy (the repo is public)
+
+**Runtime PII is expected; repo PII is not.** The CLI printing your real
+balance, address, account number, or transaction data when you run it against
+your own account is the whole point — that is not a leak, and nothing masks or
+redacts it. The rule is strictly about the **repository**: code, fixtures,
+docs, examples, commit messages, PR bodies, and git history must contain only
+scrubbed dummies. When something looks like a privacy concern, ask "does this
+land in the repo?" — if not, it's fine.
+
+- Never commit a password, session cookie, real name, address, balance,
+  transaction number, or account/property ID.
+- `tests/fixtures/` are **scrubbed** captures: structure preserved exactly,
+  every identifying and financial value replaced with an obvious dummy. The
+  policy is in `tests/fixtures/README.md`, and
+  `fixtures_carry_no_real_identifiers` in `tests/fixture_shapes.rs` enforces it.
+  Extend that test's banned list when you add a new kind of identifier.
+- Don't paste real portal output into an issue, commit message, or doc example.
+  The README's examples use scrubbed figures.
+
+## Definition of done
+
+`make verify` green, tests cover the change, `--json` and human output both
+updated, `docs/api.md` still matches reality, and no secrets or PII anywhere in
+the diff — including fixtures.

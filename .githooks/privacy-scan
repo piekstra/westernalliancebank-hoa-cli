@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Privacy scanner for this repo. Three entry points use it:
+#   privacy-scan diff            # staged changes      (pre-commit hook)
+#   privacy-scan msg <file>      # a commit message    (commit-msg hook)
+#   privacy-scan text            # stdin: PR body, release note, any prose
+#
+# This repo is private, but it is written as if public (see AGENTS.md) — and
+# the data behind it is a real bank account at a real address. Pattern-based on
+# purpose: a denylist of the owner's actual account numbers would itself be the
+# leak it is meant to prevent.
+#
+# Override once, when certain:  ALLOW_PRIVACY_RISK=1 git commit ...
+set -uo pipefail
+
+MODE="${1:-diff}"
+case "$MODE" in
+  # Added lines only — a commit that *removes* a leaked value must not be
+  # blocked by the value it is removing. Exclude .githooks/ too: this scanner's
+  # own source necessarily contains every pattern it looks for, so including it
+  # self-matches forever.
+  diff) HAY="$(git diff --cached -U0 -- . ':(exclude).githooks/' 2>/dev/null \
+                 | grep '^+' | grep -v '^+++' || true)"; CHECK_FILES=1; CHECK_MONEY=0 ;;
+  msg)  HAY="$(cat "${2:?msg needs a file}" 2>/dev/null || true)"; CHECK_FILES=0; CHECK_MONEY=1 ;;
+  text) HAY="$(cat)"; CHECK_FILES=0; CHECK_MONEY=1 ;;
+  *)    echo "usage: privacy-scan {diff|msg <file>|text}" >&2; exit 2 ;;
+esac
+
+fail=0
+note() { printf '  \xe2\x9c\x97 %s\n' "$1" >&2; fail=1; }
+
+# ── Hard blocks: never legitimate in this repo ──────────────────────────────
+grep -qE '\b(ss-id|ss-pid|ss-opt|opayUC)=[A-Za-z0-9%._-]{6,}' <<<"$HAY" \
+  && note "a portal session cookie — these authenticate the account outright"
+grep -qiE '^[[:space:]]*(Set-)?Cookie:' <<<"$HAY" \
+  && note "a raw Cookie header"
+grep -qE 'claude\.ai/(code/)?session' <<<"$HAY" \
+  && note "a Claude session link — sessions are private, never reference them publicly"
+grep -qiE '^[[:space:]]*Claude-Session:' <<<"$HAY" \
+  && note "a Claude-Session trailer (attribution must stay off)"
+grep -qiE 'Co-Authored-By:.*claude' <<<"$HAY" \
+  && note "a Claude co-author trailer (attribution must stay off)"
+grep -qE 'data-cfemail="[0-9a-f]{10,}"' <<<"$HAY" \
+  && note "a Cloudflare data-cfemail attribute — it hex-encodes a real address"
+# Notification emails embed one-time ExpressLogin and CancelPayment links.
+# An ExpressLogin token IS a working credential for the account; a capture of
+# any notice body carries one. Dummy UUIDs (all-zero prefix) are allowed.
+grep -qiE 'token=[0-9a-f-]{20,}' <<<"$HAY" \
+  && ! grep -qiE 'token=(0{8}-|<|\$|%s|xxx)' <<<"$HAY" \
+  && note "a URL token — ExpressLogin tokens are live one-time credentials"
+# Dummy UUIDs are spelled with an all-zero or `deadbeef` first group; anything
+# else with this shape is assumed live. See tests/fixtures/README.md.
+grep -oE '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b' <<<"$HAY" \
+  | grep -qvE '^(00000000|deadbeef)-' \
+  && note "a UUID — portal login/payment tokens have this shape"
+
+# Email addresses, except the dummies fixtures and docs are supposed to use.
+if grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' <<<"$HAY" \
+   | grep -qvE '@(example\.(com|org|net)|users\.noreply\.github\.com)$'; then
+  note "a real email address — use owner@example.com in fixtures and docs"
+fi
+
+# The portal's own identifiers — checked in prose only (commit messages, PR
+# bodies). In code and fixtures these shapes are everywhere as *scrubbed*
+# dummies, and flagging those would make this hook noise that gets reflexively
+# overridden; there, `fixtures_carry_no_real_identifiers` in
+# tests/fixture_shapes.rs is the precise guard. Prose is where a real number
+# leaks by accident, and nothing legitimately carries one.
+if [ "$CHECK_MONEY" = 1 ]; then
+  grep -qiE '(member|account|property)[_ ]?(number|id|num)"?[:=][:= "]*[0-9]{5,}' <<<"$HAY" \
+    && note "what looks like an account/property number — keep identifiers out of prose"
+  grep -qiE 'transaction[_ ]?(number|num|#)"?[:=][:= "]*[0-9]{7,}' <<<"$HAY" \
+    && note "what looks like a transaction number — keep identifiers out of prose"
+fi
+
+if [ "$CHECK_FILES" = 1 ]; then
+  git diff --cached --name-only 2>/dev/null \
+    | grep -qE '\.(pem|key|p12|pfx)$|(^|/)(secrets|cookies)\.' \
+    && note "a credential-shaped file"
+  # Raw captures must be scrubbed into tests/fixtures/, never committed as-is.
+  git diff --cached --name-only 2>/dev/null | grep -qE '(^|/)wab-[a-z0-9-]+\.(html|json)$' \
+    && note "a raw portal capture — scrub it into tests/fixtures/ instead"
+fi
+
+# ── Money ───────────────────────────────────────────────────────────────────
+# A real assessment amount plus a real address identifies a household. Allowed
+# in prose only when it says the figures are invented, which forces a decision
+# instead of a habit.
+if [ "$CHECK_MONEY" = 1 ] && grep -qE '\$[0-9]' <<<"$HAY" \
+   && ! grep -qiE 'illustrative|invented|sample|example|hypothetical|scrubbed' <<<"$HAY"; then
+  note "dollar figures with no 'illustrative' note — if real, don't publish them; if invented, say so"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  if [ "${ALLOW_PRIVACY_RISK:-}" = "1" ]; then
+    echo "  (ALLOW_PRIVACY_RISK=1 — proceeding despite the findings above)" >&2
+    exit 0
+  fi
+  echo "" >&2
+  echo "blocked by .githooks/privacy-scan ($MODE) — privacy gate" >&2
+  echo "Use invented figures in messages and docs; keep balances, addresses," >&2
+  echo "account/transaction numbers and session cookies out entirely." >&2
+  echo "See tests/fixtures/README.md.  Override: ALLOW_PRIVACY_RISK=1" >&2
+  exit 1
+fi
+exit 0
