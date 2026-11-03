@@ -18,6 +18,7 @@ use crate::writes;
 #[derive(Args, Debug)]
 pub struct ApiArgs {
     /// Path under the portal host, e.g. `/DashboardContent`.
+    /// An absolute URL must be `https`, or `http` only to this machine.
     pub path: String,
 
     /// JSON body to POST. Without it the request is a GET.

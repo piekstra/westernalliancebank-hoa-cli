@@ -21,7 +21,7 @@ portal *can* do that this CLI deliberately doesn't.
 ## Install
 
 ```console
-# from source (recent stable Rust; MSRV 1.88)
+# from source (recent stable Rust; MSRV 1.89)
 $ cargo install --git https://github.com/piekstra/westernalliancebank-hoa-cli --locked
 $ make install        # cargo install --locked --path . --force
 ```
@@ -201,7 +201,7 @@ appear alongside it.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `username` | — | Portal login email. Also read from `$WABHOA_USERNAME`. |
-| `base_url` | `https://pay.westernalliancebank.com` | For the other banks on this platform. |
+| `base_url` | `https://pay.westernalliancebank.com` | For the other banks on this platform. Must be `https`; plain `http` works only to this machine, and anything else is refused with exit 2. |
 | `auto_login` | `true` | Re-authenticate automatically when the portal expires the session. |
 
 Secrets never land here. The password and the cached session live in the OS

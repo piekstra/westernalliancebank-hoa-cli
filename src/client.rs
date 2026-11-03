@@ -108,10 +108,11 @@ impl Portal {
     /// Replay a cached session from the keychain. The session is *not* verified
     /// here; the first read surfaces expiry.
     pub fn from_cached_session(cfg: &Config, creds: &CredentialStore) -> Result<Self, CliError> {
+        // First, so a refused base URL never costs a keychain read.
+        let mut portal = Portal::new(cfg.base_url())?;
         let session = creds.get(SESSION_ACCOUNT)?.ok_or_else(|| {
             CliError::Auth("no portal session stored — run `wabhoa auth login`".into())
         })?;
-        let mut portal = Portal::new(cfg.base_url())?;
         portal.seed_bundle(session.expose());
         portal.sync = Some(SessionSync {
             creds: CredentialStore::new(creds.service()),

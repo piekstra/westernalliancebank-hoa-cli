@@ -42,6 +42,14 @@ scripted clients.
 This is why `wabhoa` uses the `password` auth method rather than the
 `browser-session` pattern that Xfinity needs.
 
+### Redirects
+
+The client refuses a redirect that leaves `https`. The `Location` scheme of the
+302s below has not been captured. If the portal or a proxy in front of it sends an
+absolute `http://` there, a read exits 5 with `refusing a redirect that leaves
+https`, nothing goes over plain http, and the automatic re-login does not run. Record
+the scheme here at the next live capture.
+
 ### Session expiry
 
 The portal **never answers `401`** for an expired session. It refuses in three

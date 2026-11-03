@@ -11,6 +11,7 @@ use clap_complete::Shell;
 use pk_cli_auth::{AuthStatus, LoginArgs, LogoutArgs, SetCredentialArgs};
 use pk_cli_config::ConfigStore;
 use pk_cli_core::info::{AuthInfo, CliInfo};
+use pk_cli_core::transport::require_secure_url;
 use pk_cli_core::{output, CliError, CommonArgs};
 use pk_cli_secrets::CredentialStore;
 use pk_cli_selfupdate::{SelfUpdateArgs, Updater};
@@ -232,6 +233,8 @@ fn login(
     creds: &CredentialStore,
     cfg: &Config,
 ) -> Result<(), CliError> {
+    // The password goes to this host, so refuse it before asking for the password.
+    require_secure_url(&cfg.base_url())?;
     let username = cfg.username().ok_or_else(|| {
         CliError::Usage(format!(
             "no portal email configured — run `{BIN} config set username <you@example.com>`"
@@ -278,6 +281,9 @@ fn config_cmd(cli: &Cli, cmd: &ConfigCmd, store: &ConfigStore) -> Result<(), Cli
             Ok(())
         }
         ConfigCmd::Set { key, value } => {
+            if key == "base_url" {
+                require_secure_url(value)?;
+            }
             let mut cfg: Config = store.load()?;
             match key.as_str() {
                 "base_url" => cfg.base_url = Some(value.clone()),
