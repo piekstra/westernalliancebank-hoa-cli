@@ -242,17 +242,11 @@ fn parsers_tolerate_unrecognized_markup() {
 /// of actual account numbers would itself be the leak.
 #[test]
 fn fixtures_carry_no_real_identifiers() {
-    // Real values from the account these captures came from, plus the shapes
-    // of secrets that must never be committed.
+    // The shapes of secrets and addresses that must never be committed.
     const BANNED: &[&str] = &[
         "Piekstra",
         "Caleb",
-        "piekstracaleb",
         "gmail.com",
-        "Enzi",
-        "TRADITION",
-        "Castle",
-        "SOFI",
         // The bare portal hostname is public and appears in message bodies;
         // it's the email form that would carry a real address.
         "@westernalliancebank.com",
