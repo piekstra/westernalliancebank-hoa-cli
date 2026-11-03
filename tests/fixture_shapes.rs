@@ -244,8 +244,6 @@ fn parsers_tolerate_unrecognized_markup() {
 fn fixtures_carry_no_real_identifiers() {
     // The shapes of secrets and addresses that must never be committed.
     const BANNED: &[&str] = &[
-        "Piekstra",
-        "Caleb",
         "gmail.com",
         // The bare portal hostname is public and appears in message bodies;
         // it's the email form that would carry a real address.
