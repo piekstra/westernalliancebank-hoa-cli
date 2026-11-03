@@ -326,3 +326,21 @@ fn config_path_resolves_without_a_session() {
         .success()
         .stdout(predicate::str::contains("wabhoa"));
 }
+
+#[test]
+fn api_refuses_a_plain_http_url_before_the_keychain() {
+    wabhoa()
+        .args(["api", "http://pay.example.invalid/DashboardContent"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("only https is allowed"));
+}
+
+#[test]
+fn config_set_refuses_a_base_url_off_https() {
+    wabhoa()
+        .args(["config", "set", "base_url", "http://pay.example.invalid"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("only https is allowed"));
+}

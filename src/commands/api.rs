@@ -18,6 +18,7 @@ use crate::writes;
 #[derive(Args, Debug)]
 pub struct ApiArgs {
     /// Path under the portal host, e.g. `/DashboardContent`.
+    /// An absolute URL must be `https`, or `http` only to this machine.
     pub path: String,
 
     /// JSON body to POST. Without it the request is a GET.
@@ -31,6 +32,9 @@ pub struct ApiArgs {
 }
 
 pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<(), CliError> {
+    // The session goes with this request, so an `http://` URL is refused before
+    // the keychain is touched.
+    crate::client::check_api_target(&args.path)?;
     // Validate everything before opening a session or touching the network.
     let body = match &args.data {
         Some(raw) => Some(
