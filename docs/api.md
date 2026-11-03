@@ -50,6 +50,10 @@ absolute `http://` there, a read exits 5 with `refusing a redirect that leaves
 https`, nothing goes over plain http, and the automatic re-login does not run. Record
 the scheme here at the next live capture.
 
+The login refuses a redirect to another host, with exit 5, since a 307 or 308 would
+re-send the password. A bank that fronts this portal with another host needs `base_url`
+set to the host that answers the login.
+
 ### Session expiry
 
 The portal **never answers `401`** for an expired session. It refuses in three

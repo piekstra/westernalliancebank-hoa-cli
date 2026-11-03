@@ -201,7 +201,7 @@ appear alongside it.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `username` | — | Portal login email. Also read from `$WABHOA_USERNAME`. |
-| `base_url` | `https://pay.westernalliancebank.com` | For the other banks on this platform. Must be `https`; plain `http` works only to this machine, and anything else is refused with exit 2. |
+| `base_url` | `https://pay.westernalliancebank.com` | For the other banks on this platform. Must be `https`; plain `http` works only to this machine, and anything else is refused with exit 2. Set it to the host that answers the login: the login refuses a redirect to another host, with exit 5. |
 | `auto_login` | `true` | Re-authenticate automatically when the portal expires the session. |
 
 Secrets never land here. The password and the cached session live in the OS
