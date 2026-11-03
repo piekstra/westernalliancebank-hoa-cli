@@ -31,6 +31,9 @@ pub struct ApiArgs {
 }
 
 pub fn run(ctx: &Ctx, args: &ApiArgs) -> Result<(), CliError> {
+    // The session goes with this request, so an `http://` URL is refused before
+    // the keychain is touched.
+    crate::client::check_api_target(&args.path)?;
     // Validate everything before opening a session or touching the network.
     let body = match &args.data {
         Some(raw) => Some(
