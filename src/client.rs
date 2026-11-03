@@ -22,7 +22,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pk_cli_core::transport::{require_secure_url, secure_redirects};
+use pk_cli_core::transport::{require_secure_url, same_host_redirects, secure_redirects};
 use pk_cli_core::CliError;
 use pk_cli_secrets::{CredentialStore, Secret};
 use reqwest::cookie::CookieStore;
@@ -44,6 +44,9 @@ const LOGIN_PATH: &str = "/auth/credentials";
 /// A portal session.
 pub struct Portal {
     http: reqwest::blocking::Client,
+    /// For the login, whose body holds the password. reqwest re-sends a body on a
+    /// 307 or 308, and `secure_redirects` allows that to any https host.
+    login_http: reqwest::blocking::Client,
     jar: Arc<reqwest::cookie::Jar>,
     base: String,
     /// Keychain write-back for a rotated cookie bundle. ServiceStack re-issues
@@ -87,18 +90,21 @@ impl Portal {
         // The password and the session cookies go to this host.
         require_secure_url(&base)?;
         let jar = Arc::new(reqwest::cookie::Jar::default());
-        let http = reqwest::blocking::Client::builder()
-            .user_agent(UA)
-            // Total request budget plus an explicit connect budget, so a
-            // stalled TLS handshake fails fast instead of hanging the CLI.
-            .timeout(Duration::from_secs(45))
-            .connect_timeout(Duration::from_secs(15))
-            .cookie_provider(jar.clone())
-            .redirect(secure_redirects())
-            .build()
-            .map_err(|e| CliError::Other(format!("failed to build HTTP client: {e}")))?;
+        let client = |redirects| {
+            reqwest::blocking::Client::builder()
+                .user_agent(UA)
+                // Total request budget plus an explicit connect budget, so a
+                // stalled TLS handshake fails fast instead of hanging the CLI.
+                .timeout(Duration::from_secs(45))
+                .connect_timeout(Duration::from_secs(15))
+                .cookie_provider(jar.clone())
+                .redirect(redirects)
+                .build()
+                .map_err(|e| CliError::Other(format!("failed to build HTTP client: {e}")))
+        };
         Ok(Portal {
-            http,
+            http: client(secure_redirects())?,
+            login_http: client(same_host_redirects())?,
             jar,
             base,
             sync: None,
@@ -203,7 +209,7 @@ impl Portal {
             "RememberMe": false,
         });
         let resp = self
-            .http
+            .login_http
             .post(self.url(LOGIN_PATH)?)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json")
@@ -620,6 +626,23 @@ mod tests {
 
     fn redirect_to(location: &str) -> String {
         format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+    }
+
+    #[test]
+    fn a_password_is_not_re_sent_to_another_host_on_a_307() {
+        let (other, reached) = stub(|_| {
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+        });
+        let target = format!("{other}/collect");
+        let (base, _) = stub(move |_| {
+            format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+        });
+        let err = Portal::new(base.as_str())
+            .unwrap()
+            .login("user", &Secret::new("dummy-password"))
+            .unwrap_err();
+        assert!(err.to_string().contains("another host"), "{err}");
+        assert!(reached.lock().unwrap().is_empty());
     }
 
     #[test]
