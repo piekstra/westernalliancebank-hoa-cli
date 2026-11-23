@@ -143,6 +143,12 @@ land in the repo?" — if not, it's fine.
   Extend that test's banned list when you add a new kind of identifier.
 - Don't paste real portal output into an issue, commit message, or doc example.
   The README's examples use scrubbed figures.
+- `.ppr.toml` holds the rules that keep these out of commits, commit messages
+  and PR text: session cookies, URL tokens, live-looking UUIDs, account and
+  transaction numbers in prose, real emails, unmarked dollar figures, Claude
+  session links and attribution, credential files and raw captures. `ppr`
+  applies them in the owner's git hooks and before every pull request
+  (`ppr check`); CI runs gitleaks on every push and pull request.
 
 ## Definition of done
 

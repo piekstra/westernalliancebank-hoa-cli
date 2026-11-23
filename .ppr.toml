@@ -1,0 +1,72 @@
+# Publication rules for this public repository, read by ppr: the global
+# pre-commit and commit-msg hooks on the owner's machine, and `ppr check`
+# before a pull request. They replace .githooks/privacy-scan. CI runs gitleaks.
+visibility = "public"
+
+[rules]
+email = "high"                 # placeholder domains only (example.com, noreply)
+money = "high"                 # dollar figures in prose need an "illustrative" note
+claude-session-link = "critical"
+ai-attribution = "high"        # Claude co-author and session trailers stay off
+
+[[pattern]]
+id = "portal-session-cookie"
+regex = '\b(ss-id|ss-pid|ss-opt|opayUC)=[A-Za-z0-9%._-]{6,}'
+severity = "critical"
+message = "a portal session cookie (it authenticates the account outright)"
+
+[[pattern]]
+id = "cookie-header"
+regex = '(?m)^\s*(Set-)?Cookie:'
+ignore_case = true
+severity = "critical"
+message = "a raw Cookie header"
+
+[[pattern]]
+id = "cfemail"
+regex = 'data-cfemail="[0-9a-f]{10,}"'
+severity = "critical"
+message = "a Cloudflare data-cfemail attribute (it hex-encodes a real address)"
+
+[[pattern]]
+id = "url-token"
+regex = 'token=[0-9a-f-]{20,}'
+unless = '^token=0{8}-'
+ignore_case = true
+severity = "critical"
+message = "a URL token (ExpressLogin tokens are live one-time credentials)"
+
+[[pattern]]
+id = "portal-uuid"
+regex = '\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'
+unless = '^(00000000|deadbeef)-'
+severity = "high"
+message = "a UUID (portal login and payment tokens have this shape; dummies start 00000000- or deadbeef-)"
+
+[[pattern]]
+id = "account-number"
+regex = '(member|account|property)[_ ]?(number|id|num)"?[:=][:= "]*[0-9]{5,}'
+ignore_case = true
+in = ["messages", "pr", "text"]
+severity = "high"
+message = "what looks like an account or property number"
+
+[[pattern]]
+id = "transaction-number"
+regex = 'transaction[_ ]?(number|num|#)"?[:=][:= "]*[0-9]{7,}'
+ignore_case = true
+in = ["messages", "pr", "text"]
+severity = "high"
+message = "what looks like a transaction number"
+
+[[path]]
+id = "credential-file"
+regex = '\.(pem|key|p12|pfx)$|(^|/)(secrets|cookies)\.'
+severity = "critical"
+message = "a credential-shaped file"
+
+[[path]]
+id = "raw-capture"
+regex = '(^|/)wab-[a-z0-9-]+\.(html|json)$'
+severity = "critical"
+message = "a raw portal capture (scrub it into tests/fixtures/ instead)"
