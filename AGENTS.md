@@ -148,7 +148,7 @@ land in the repo?" — if not, it's fine.
   transaction numbers in prose, real emails, unmarked dollar figures, Claude
   session links and attribution, credential files and raw captures. `ppr`
   applies them in the owner's git hooks and before every pull request
-  (`ppr check`); CI runs gitleaks on every push and pull request.
+  (`ppr check`); CI runs gitleaks on pull requests and pushes to main.
 - Those rules run only where ppr is installed. CI's gitleaks finds secrets,
   not the rest. In a clone without ppr (another machine, a sandbox), read the
   diff, the commit message and the PR title and body against `.ppr.toml`
